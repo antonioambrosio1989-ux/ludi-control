@@ -1,0 +1,241 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --competition-primary: #06142e;
+  --competition-text: #ffffff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: "Courier New", Courier, monospace;
+}
+
+/*
+ * ============================================================
+ * DOCUMENT
+ * ============================================================
+ */
+
+html {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  overscroll-behavior-y: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  touch-action: pan-x pan-y;
+  overscroll-behavior: none;
+}
+
+/*
+ * ============================================================
+ * HIDE SCROLLBAR
+ * Mantiene lo swipe orizzontale.
+ * ============================================================
+ */
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/*
+ * ============================================================
+ * TOUCH
+ * ============================================================
+ */
+
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+/*
+ * ============================================================
+ * MOBILE KEYBOARD / IOS SAFARI
+ * ============================================================
+ *
+ * iOS Safari può effettuare uno zoom automatico quando un campo
+ * editabile ha font-size inferiore a 16px. Oltre al blocco zoom
+ * del viewport, manteniamo tutti i controlli che aprono la
+ * tastiera ad almeno 16px su mobile.
+ *
+ * Non tocchiamo checkbox, radio, range, color, file o pulsanti.
+ */
+
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]),
+  textarea,
+  select {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    font-size: 16px !important;
+  }
+}
+
+button,
+a {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/*
+ * ============================================================
+ * ACCESSIBILITY / FOCUS
+ * ============================================================
+ */
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(6, 20, 46, 0.22);
+  outline-offset: 3px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+::selection {
+  background: rgba(6, 20, 46, 0.16);
+  color: #06142e;
+}
+
+/*
+ * ============================================================
+ * GLOBAL SCROLLBAR
+ * ============================================================
+ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(6, 20, 46, 0.18);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 20, 46, 0.28);
+}
+
+/*
+ * ============================================================
+ * REDUCED MOTION
+ * ============================================================
+ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer components {
+  .ludi-card {
+    @apply rounded-[13px] bg-white shadow-[0_10px_24px_rgba(6,20,46,0.10)];
+  }
+
+  .ludi-card-interactive {
+    @apply rounded-[13px] bg-white shadow-[0_10px_24px_rgba(6,20,46,0.10)]
+      transition duration-200 ease-out
+      hover:-translate-y-0.5
+      hover:shadow-[0_14px_30px_rgba(6,20,46,0.14)]
+      active:translate-y-0
+      active:scale-[0.985];
+  }
+
+  .ludi-button-primary {
+    @apply inline-flex min-h-12 items-center justify-center rounded-[13px]
+      bg-[#06142E] px-5 text-sm font-black uppercase text-white
+      transition duration-150 ease-out
+      hover:bg-[#0B2148]
+      active:scale-[0.98]
+      disabled:pointer-events-none
+      disabled:bg-[#06142E]/20;
+  }
+
+  .ludi-button-secondary {
+    @apply inline-flex min-h-12 items-center justify-center rounded-[13px]
+      border border-[#06142E] bg-white px-5
+      text-sm font-black uppercase text-[#06142E]
+      transition duration-150 ease-out
+      hover:bg-[#06142E]/5
+      active:scale-[0.98]
+      disabled:pointer-events-none
+      disabled:opacity-30;
+  }
+
+  .ludi-input {
+    @apply min-h-12 w-full rounded-[13px]
+      border border-[#06142E]/15 bg-white px-4
+      font-bold text-[#06142E] outline-none
+      transition duration-150
+      placeholder:text-[#06142E]/30
+      focus:border-[#06142E]
+      focus:ring-4
+      focus:ring-[#06142E]/8;
+  }
+
+  .ludi-section-title {
+    @apply text-lg font-black uppercase tracking-[-0.02em] text-[#06142E];
+  }
+}
+
+.admin-input {
+  width: 100%;
+  border: 1px solid rgba(6, 20, 46, 0.12);
+  border-radius: 13px;
+  background: #ffffff;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #06142e;
+  outline: none;
+}
+
+.admin-input:focus {
+  border-color: #0b5fff;
+  box-shadow: 0 0 0 3px rgba(11, 95, 255, 0.1);
+}

@@ -1,0 +1,1611 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /*
+     * ========================================================
+     * ADMIN
+     * ========================================================
+     */
+
+    function isAdmin() {
+      return request.auth != null
+        && exists(
+          /databases/$(database)/documents/admins/$(request.auth.uid)
+        )
+        && get(
+          /databases/$(database)/documents/admins/$(request.auth.uid)
+        ).data.active == true;
+    }
+
+    /*
+     * ========================================================
+     * AMMINISTRATORI
+     * ========================================================
+     *
+     * Ogni utente autenticato può verificare esclusivamente
+     * il proprio documento admins/{uid}.
+     *
+     * Nessuna modifica lato client.
+     * ========================================================
+     */
+
+    match /admins/{adminId} {
+      allow read:
+        if request.auth != null
+        && request.auth.uid == adminId;
+
+      allow create, update, delete:
+        if false;
+    }
+
+    /*
+     * ========================================================
+     * USERS
+     * ========================================================
+     *
+     * Regole temporanee di transizione.
+     *
+     * Supportano:
+     *
+     * - vecchio profilo con photoUrl
+     * - nuovo profilo senza photoUrl
+     *
+     * Dopo la pubblicazione della nuova versione dell'app,
+     * photoUrl verrà rimosso definitivamente.
+     * ========================================================
+     */
+
+    match /users/{userId} {
+      allow read:
+        if isAdmin()
+        || (
+          request.auth != null
+          && request.auth.uid == userId
+        );
+
+      allow create:
+        if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == "user"
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 2
+        && request.resource.data.displayName.size() <= 40
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.keys().hasOnly([
+          "uid",
+          "email",
+          "displayName",
+          "role",
+          "photoUrl",
+          "createdAt",
+          "updatedAt"
+        ]);
+
+      allow update:
+        if isAdmin()
+        || (
+          request.auth != null
+          && request.auth.uid == userId
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.displayName is string
+          && request.resource.data.displayName.size() >= 2
+          && request.resource.data.displayName.size() <= 40
+          && request.resource.data.keys().hasOnly([
+            "uid",
+            "email",
+            "displayName",
+            "role",
+            "photoUrl",
+            "createdAt",
+            "updatedAt"
+          ])
+          && request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              "displayName",
+              "updatedAt"
+            ])
+        );
+
+      allow delete:
+        if isAdmin();
+    }
+
+        /*
+     * ========================================================
+     * USER SETTINGS
+     * ========================================================
+     *
+     * Preferenze personali dell'utente.
+     *
+     * Percorso:
+     *
+     * users/{uid}/settings/preferences
+     *
+     * Ogni utente può leggere e modificare esclusivamente
+     * le proprie impostazioni.
+     *
+     * Attualmente viene gestito:
+     *
+     * - notificationsEnabled
+     *
+     * ========================================================
+     */
+
+    match /users/{userId}/settings/preferences {
+      /*
+       * ======================================================
+       * READ
+       * ======================================================
+       */
+
+      allow read:
+        if isAdmin()
+        || (
+          request.auth != null
+          && request.auth.uid == userId
+        );
+
+      /*
+       * ======================================================
+       * VALIDAZIONE PREFERENZE NOTIFICHE
+       * ======================================================
+       */
+
+      function validNotificationPreferences() {
+        return request.resource.data.notificationPreferences is map
+          && request.resource.data.notificationPreferences.keys().hasOnly([
+            "matchday",
+            "matchReports",
+            "ludisWeek",
+            "calendar"
+          ])
+          && request.resource.data.notificationPreferences.matchday is bool
+          && request.resource.data.notificationPreferences.matchReports is bool
+          && request.resource.data.notificationPreferences.ludisWeek is bool
+          && request.resource.data.notificationPreferences.calendar is bool;
+      }
+
+      /*
+       * ======================================================
+       * VALIDAZIONE SINGOLO GIOCATORE PREFERITO
+       * ======================================================
+       */
+
+      function validFavoritePlayerAt(index) {
+        return request.resource.data.favoritePlayers.size() <= index
+          || (
+            request.resource.data.favoritePlayers[index] is map
+            && request.resource.data.favoritePlayers[index].keys().hasOnly([
+              "competitionId",
+              "playerId"
+            ])
+            && request.resource.data.favoritePlayers[index].competitionId is string
+            && request.resource.data.favoritePlayers[index].competitionId.size() > 0
+            && request.resource.data.favoritePlayers[index].playerId is string
+            && request.resource.data.favoritePlayers[index].playerId.size() > 0
+          );
+      }
+
+      /*
+       * ======================================================
+       * VALIDAZIONE LISTA GIOCATORI PREFERITI
+       * ======================================================
+       *
+       * Compatibilità con documenti precedenti che non
+       * contengono ancora favoritePlayers.
+       *
+       * Se presente, la lista può contenere al massimo
+       * un giocatore (i vecchi preferiti restano validi se non modificati).
+       * ======================================================
+       */
+
+      function validFavoriteTeam() {
+        return !request.resource.data.keys().hasAny(["favoriteTeam"])
+          || request.resource.data.favoriteTeam == null
+          || (request.resource.data.favoriteTeam is map
+            && request.resource.data.favoriteTeam.keys().hasAll(["competitionId", "teamId"])
+            && request.resource.data.favoriteTeam.keys().hasOnly(["competitionId", "teamId"])
+            && request.resource.data.favoriteTeam.competitionId is string
+            && request.resource.data.favoriteTeam.competitionId.size() > 0
+            && request.resource.data.favoriteTeam.teamId is string
+            && request.resource.data.favoriteTeam.teamId.size() > 0);
+      }
+
+      function validFavoritePlayers() {
+        return !request.resource.data.keys().hasAny([
+          "favoritePlayers"
+        ])
+        || (
+          request.resource.data.favoritePlayers is list
+          && (request.resource.data.favoritePlayers.size() <= 1
+            || (resource != null && resource.data.keys().hasAny(["favoritePlayers"])
+              && request.resource.data.favoritePlayers == resource.data.favoritePlayers
+              && request.resource.data.favoritePlayers.size() <= 3))
+          && validFavoritePlayerAt(0)
+          && validFavoritePlayerAt(1)
+          && validFavoritePlayerAt(2)
+        );
+      }
+
+      /*
+       * ======================================================
+       * CREATE
+       * ======================================================
+       */
+
+      allow create:
+        if request.auth != null
+        && request.auth.uid == userId
+
+        && request.resource.data.notificationsEnabled
+          is bool
+
+        && validNotificationPreferences()
+        && validFavoritePlayers()
+        && validFavoriteTeam()
+
+        && request.resource.data.createdAt ==
+          request.time
+
+        && request.resource.data.updatedAt ==
+          request.time
+
+        && request.resource.data.keys().hasOnly([
+          "notificationsEnabled",
+          "notificationPreferences",
+          "favoritePlayers",
+          "favoriteTeam",
+          "createdAt",
+          "updatedAt"
+        ]);
+
+      /*
+       * ======================================================
+       * UPDATE
+       * ======================================================
+       *
+       * L'utente può modificare esclusivamente:
+       *
+       * - notificationsEnabled
+       * - notificationPreferences
+       * - favoritePlayers
+       * - updatedAt
+       *
+       * createdAt rimane immutabile.
+       * ======================================================
+       */
+
+      allow update:
+        if isAdmin()
+        || (
+          request.auth != null
+          && request.auth.uid == userId
+
+          && request.resource.data.notificationsEnabled
+            is bool
+
+          && validNotificationPreferences()
+          && validFavoritePlayers()
+        && validFavoriteTeam()
+
+          && request.resource.data.createdAt ==
+            resource.data.createdAt
+
+          && request.resource.data.updatedAt ==
+            request.time
+
+          && request.resource.data.keys().hasOnly([
+            "notificationsEnabled",
+            "notificationPreferences",
+            "favoritePlayers",
+          "favoriteTeam",
+            "createdAt",
+            "updatedAt"
+          ])
+
+          && request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              "notificationsEnabled",
+              "notificationPreferences",
+              "favoritePlayers",
+          "favoriteTeam",
+              "updatedAt"
+            ])
+        );
+
+      /*
+       * ======================================================
+       * DELETE
+       * ======================================================
+       */
+
+      allow delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * COMPETIZIONI
+     * ========================================================
+     *
+     * Le competizioni sono pubbliche in lettura.
+     * La gestione è consentita esclusivamente all'Admin.
+     * ========================================================
+     */
+
+    match /competitions/{competitionId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * STAGIONI
+     * ========================================================
+     */
+
+    match /seasons/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * Sottocollezione utilizzata per
+     * le iscrizioni delle squadre alla stagione.
+     *
+     * Le regole del documento /seasons/{id}
+     * NON vengono ereditate automaticamente
+     * dalle sottocollezioni.
+     */
+
+    match /seasons/{seasonId}/teamEntries/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * Contatti privati dei presidenti.
+     * I numeri WhatsApp non devono essere inclusi nei documenti
+     * pubblici delle partecipazioni stagionali.
+     */
+
+    match /seasons/{seasonId}/teamContacts/{documentId} {
+      allow read, create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * IMPOSTAZIONI GLOBALI
+     * ========================================================
+     *
+     * Attualmente viene utilizzato:
+     *
+     * settings/general
+     *
+     * per currentSeasonId.
+     * ========================================================
+     */
+
+    match /settings/general {
+      allow read, create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * SQUADRE
+     * ========================================================
+     */
+
+    match /teams/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * PARTITE FASI FINALI
+     * ========================================================
+     */
+
+    match /finalStageMatches/{documentId} {
+      allow read:
+        if isAdmin() || resource.data.published == true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * GIOCATORI FASI FINALI
+     * ========================================================
+     */
+
+    match /finalStagePlayers/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * TABELLINI FASI FINALI
+     * ========================================================
+     */
+
+    match /finalStageMatchReports/{documentId} {
+      allow read:
+        if isAdmin() || resource.data.status == "published";
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * GIOCATORI GLOBALI
+     * ========================================================
+     */
+
+    match /players/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * DATI PRIVATI GIOCATORI
+     * ========================================================
+     *
+     * Contiene dati non destinati alla lettura pubblica,
+     * come l'anno di nascita.
+     *
+     * Utilizzato anche dalla generazione Admin delle
+     * Weekly Challenge tramite getAllWithPrivate().
+     * ========================================================
+     */
+
+    match /playerPrivateProfiles/{documentId} {
+      allow read:
+        if isAdmin();
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * ROSE STAGIONALI
+     * ========================================================
+     */
+
+    match /seasonPlayers/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * CALENDARIO E PARTITE
+     * ========================================================
+     */
+
+    match /matches/{documentId} {
+      allow read:
+        if isAdmin() || resource.data.published == true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * TABELLINI
+     * ========================================================
+     */
+
+    match /matchReports/{documentId} {
+      allow read:
+        if isAdmin() || resource.data.status == "published";
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * Formazioni pre-partita elaborate dal webhook WhatsApp.
+     * La scrittura avviene esclusivamente tramite Firebase Admin.
+     */
+
+    match /matchLineups/{documentId} {
+      /*
+       * Una formazione può essere letta pubblicamente solo se
+       * eventuali playerIds sono già pubblicati.
+       *
+       * Gli stati intermedi senza playerIds restano leggibili
+       * perché non espongono ancora l'identità dei giocatori.
+       */
+      allow read:
+        if isAdmin()
+        || (
+          (
+            !resource.data.home.keys().hasAny(["playerIds"])
+            || resource.data.home.playerIds.size() == 0
+            || resource.data.home.status == "published"
+          )
+          && (
+            !resource.data.away.keys().hasAny(["playerIds"])
+            || resource.data.away.playerIds.size() == 0
+            || resource.data.away.status == "published"
+          )
+        );
+
+      allow create, update, delete:
+        if false;
+    }
+
+    /*
+     * Richieste, risposte originali e metadati WhatsApp privati.
+     */
+
+    match /lineupRequests/{documentId} {
+      allow read:
+        if isAdmin();
+
+      allow create, update, delete:
+        if false;
+    }
+
+    match /whatsappWebhookEvents/{documentId} {
+      allow read, create, update, delete:
+        if false;
+    }
+
+    /*
+     * ========================================================
+     * CLASSIFICHE
+     * ========================================================
+     */
+
+    match /standings/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * NEWS
+     * ========================================================
+     */
+
+    match /news/{newsId} {
+      allow read:
+        if isAdmin()
+        || resource.data.status == "published";
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * VIDEO
+     * ========================================================
+     */
+
+    match /video/{itemId} {
+      allow read:
+        if isAdmin()
+        || resource.data.status == "published";
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * ALBO D'ORO
+     * ========================================================
+     *
+     * Pubblico in lettura.
+     * Modificabile esclusivamente dall'Admin.
+     * ========================================================
+     */
+
+    match /hallOfChampions/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * STATISTICHE STORICHE GIOCATORI
+     * ========================================================
+     */
+
+    match /historicalPlayerSeasonStats/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * MVP
+     * ========================================================
+     */
+
+    match /mvps/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * HALL OF FAME
+     * ========================================================
+     */
+
+    match /hallOfFame/{awardId} {
+      allow read:
+        if isAdmin()
+        || resource.data.status == "published";
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * REGOLAMENTO
+     * ========================================================
+     */
+
+    match /regulations/{competitionId} {
+      /*
+       * Il pubblico vede solo regolamenti pubblicati.
+       * Gli Admin possono leggere anche eventuali bozze.
+       *
+       * La lettura di un documento non ancora esistente è
+       * consentita così la pagina pubblica può mostrare lo
+       * stato "Regolamento non disponibile" senza permission
+       * denied.
+       */
+      allow read:
+        if isAdmin()
+        || !exists(
+          /databases/$(database)/documents/regulations/$(competitionId)
+        )
+        || resource.data.status == "published";
+
+      /*
+       * Ogni nuovo documento deve dichiarare lo stesso
+       * competitionId utilizzato come ID documento.
+       *
+       * Esempi:
+       * regulations/premier-league
+       * regulations/championship
+       * regulations/league-one
+       */
+      allow create:
+        if isAdmin()
+        && request.resource.data.competitionId == competitionId;
+
+      allow update:
+        if isAdmin()
+        && resource.data.competitionId == competitionId
+        && request.resource.data.competitionId == competitionId;
+
+      allow delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * PREMI MATCHWEEK
+     * ========================================================
+     */
+
+    match /matchweekAwards/{documentId} {
+      allow read:
+        if isAdmin()
+        || resource.data.status == "published";
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * COMUNICATI UFFICIALI / DISCIPLINARI
+     * ========================================================
+     *
+     * Il pubblico vede esclusivamente
+     * i comunicati pubblicati.
+     *
+     * L'Admin può leggere anche le bozze
+     * e gestire completamente i documenti.
+     * ========================================================
+     */
+
+    match /officialCommunications/{communicationId} {
+      allow read:
+        if isAdmin()
+        || resource.data.status == "published";
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * DATI DISCIPLINARI INTERNI
+     * ========================================================
+     *
+     * Non sono dati pubblici.
+     *
+     * Vengono utilizzati internamente per
+     * ammonizioni, diffide e squalifiche.
+     * ========================================================
+     */
+
+    match /disciplinaryRecords/{documentId} {
+      allow read, create, update, delete:
+        if isAdmin();
+    }
+
+    match /disciplinarySuspensions/{documentId} {
+      allow read, create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * GAMES
+     * ========================================================
+     */
+
+    match /gamesGames/{gameId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * QUIZ — CONFIGURAZIONE ADMIN
+     * --------------------------------------------------------
+     *
+     * Utilizzata da:
+     * src/services/games/FirebaseGamesQuizRepository.ts
+     *
+     * Documento:
+     * gamesQuizConfigs/{gameId}
+     *
+     * Contiene configurazione operativa del Quiz.
+     * Lettura e scrittura esclusivamente Admin.
+     * --------------------------------------------------------
+     */
+
+    match /gamesQuizConfigs/{gameId} {
+      allow read, create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * QUIZ — BANCA DOMANDE ADMIN
+     * --------------------------------------------------------
+     *
+     * Utilizzata da:
+     * src/services/games/FirebaseGamesQuizRepository.ts
+     *
+     * Collection:
+     * gamesQuizQuestions/{questionId}
+     *
+     * Contiene anche correctAnswerIndex e explanation.
+     * Non deve essere leggibile direttamente dagli utenti.
+     * Il gioco pubblico passa dalle API server-side.
+     * --------------------------------------------------------
+     */
+
+    match /gamesQuizQuestions/{questionId} {
+      allow read, create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * QUIZ — WEEKLY CHALLENGE ADMIN
+     * --------------------------------------------------------
+     *
+     * La UI Admin Weekly Quiz gestisce le settimane pubblicate
+     * nella collection gamesQuizWeeks e le relative domande
+     * nella sottocollezione questions.
+     *
+     * Il client Admin può leggere e modificare questi documenti.
+     * Il client pubblico NON accede direttamente:
+     * il gioco pubblico passa dalle API server-side.
+     * --------------------------------------------------------
+     */
+
+    match /gamesQuizWeeks/{weekId} {
+      allow read, create, update, delete:
+        if isAdmin();
+
+      match /questions/{questionId} {
+        allow read, create, update, delete:
+          if isAdmin();
+      }
+    }
+
+    /*
+     * --------------------------------------------------------
+     * STAGIONI GAMES
+     * --------------------------------------------------------
+     *
+     * Le stagioni Games sono pubbliche in lettura.
+     *
+     * La creazione, modifica, attivazione e archiviazione
+     * sono consentite esclusivamente all'Admin.
+     * --------------------------------------------------------
+     */
+
+    match /gamesSeasons/{gamesSeasonId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * ABBONAMENTI GAMES
+     * --------------------------------------------------------
+     *
+     * Ogni utente autenticato può leggere esclusivamente
+     * il proprio Games Pass.
+     *
+     * La scrittura lato client è sempre vietata:
+     * gli aggiornamenti vengono effettuati dal backend
+     * tramite Stripe webhook / Firebase Admin SDK.
+     * --------------------------------------------------------
+     */
+
+    match /gamesSubscriptions/{subscriptionId} {
+      allow get:
+        if request.auth != null
+        && subscriptionId.matches(
+          '^' + request.auth.uid + '-.+$'
+        );
+
+      allow list:
+        if isAdmin();
+
+      allow create, update, delete:
+        if false;
+    }
+
+    match /gamesAccessCodes/{codeId} {
+      allow read:
+        if isAdmin();
+
+      allow create, update, delete:
+        if false;
+    }
+
+    /*
+     * ========================================================
+     * FANTACALCIO
+     * ========================================================
+     *
+     * Le operazioni sensibili dell'utente passano dalle API
+     * server-side tramite Firebase Admin SDK:
+     *
+     * POST /api/games/fantacalcio/team
+     * PUT  /api/games/fantacalcio/team/roster
+     * POST /api/games/fantacalcio/team/roster/lock
+     * PUT  /api/games/fantacalcio/formation
+     *
+     * Firebase Admin SDK bypassa le Firestore Security Rules.
+     *
+     * Il browser può quindi leggere esclusivamente i dati
+     * necessari, ma non può modificare direttamente squadre,
+     * rose o formazioni Fantasy.
+     * ========================================================
+     */
+
+    /*
+     * --------------------------------------------------------
+     * STAGIONI FANTASY
+     * --------------------------------------------------------
+     *
+     * La configurazione della stagione viene utilizzata anche
+     * dalla UI utente per regole, budget, ruoli e disponibilità.
+     *
+     * Scrittura esclusivamente Admin.
+     * --------------------------------------------------------
+     */
+
+    match /fantasySeasons/{fantasySeasonId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * LISTONI FANTASY
+     * --------------------------------------------------------
+     *
+     * I metadati del Listone sono leggibili dalla UI.
+     *
+     * Creazione, importazione, pubblicazione ed eliminazione
+     * restano esclusivamente amministrative.
+     * --------------------------------------------------------
+     */
+
+    match /fantasyPlayerPools/{poolId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * GIOCATORI FANTASY
+     * --------------------------------------------------------
+     *
+     * L'Admin può sempre leggere e gestire il Listone.
+     *
+     * Gli utenti possono leggere i giocatori soltanto quando
+     * la relativa Fantasy Season ha un Listone pubblicato.
+     *
+     * Nessuna scrittura client.
+     * --------------------------------------------------------
+     */
+
+    match /fantasyPlayers/{fantasyPlayerId} {
+      allow read:
+        if isAdmin()
+        || (
+          resource.data.fantasySeasonId is string
+
+          && exists(
+            /databases/$(database)/documents/fantasySeasons/$(resource.data.fantasySeasonId)
+          )
+
+          && get(
+            /databases/$(database)/documents/fantasySeasons/$(resource.data.fantasySeasonId)
+          ).data.playerListPublishedAt != null
+        );
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * SQUADRE FANTASY
+     * --------------------------------------------------------
+     *
+     * Il proprietario può leggere la propria squadra.
+     *
+     * Dopo il lock della rosa, la squadra diventa leggibile
+     * anche dagli altri utenti.
+     *
+     * Creazione squadra, modifica rosa, budget, validità,
+     * eligibility e lock passano esclusivamente dalle API.
+     *
+     * Nessuna scrittura diretta dell'utente.
+     * --------------------------------------------------------
+     */
+
+    match /fantasyTeams/{fantasyTeamId} {
+      allow read:
+        if isAdmin()
+        || (
+          request.auth != null
+          && resource.data.userId == request.auth.uid
+        )
+        || resource.data.rosterLockedAt != null;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * LOCK UNICITÀ SQUADRE FANTASY
+     * --------------------------------------------------------
+     *
+     * Collection tecnica utilizzata esclusivamente
+     * dalle API server tramite Firebase Admin SDK.
+     *
+     * I documenti garantiscono atomicamente:
+     *
+     * - una sola squadra per utente e Fantasy Season;
+     * - un solo utilizzo dello stesso nome normalizzato
+     *   all'interno della Fantasy Season.
+     *
+     * Nessun client, incluso l'Admin autenticato dal browser,
+     * deve poter leggere o modificare direttamente i lock.
+     *
+     * Firebase Admin SDK bypassa le Firestore Security Rules.
+     * --------------------------------------------------------
+     */
+
+    match /fantasyTeamUniquenessLocks/{lockId} {
+      allow read, create, update, delete:
+        if false;
+    }
+
+    /*
+     * --------------------------------------------------------
+     * FORMAZIONI FANTASY
+     * --------------------------------------------------------
+     *
+     * Il proprietario può leggere la propria formazione anche
+     * durante la finestra di consegna.
+     *
+     * Una formazione bloccata può essere letta anche dagli
+     * altri utenti.
+     *
+     * Tutti i salvataggi utente passano dalla route server:
+     *
+     * PUT /api/games/fantacalcio/formation
+     *
+     * Nessuna scrittura diretta dell'utente.
+     * --------------------------------------------------------
+     */
+
+    match /fantasyFormations/{fantasyFormationId} {
+      allow read:
+        if isAdmin()
+        || (
+          request.auth != null
+          && resource.data.userId == request.auth.uid
+        )
+        || resource.data.status == "locked";
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * MATCHWEEK FANTASY
+     * --------------------------------------------------------
+     *
+     * La UI deve poter leggere:
+     *
+     * - Matchweek corrente
+     * - stato
+     * - apertura formazione
+     * - chiusura formazione
+     * - deadline
+     *
+     * Gestione esclusivamente Admin.
+     * --------------------------------------------------------
+     */
+
+    match /fantasyMatchweeks/{fantasyMatchweekId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * CLASSIFICHE FANTASY
+     * --------------------------------------------------------
+     */
+
+    match /fantasyStandings/{standingId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * PUNTEGGI GIOCATORI FANTASY
+     * --------------------------------------------------------
+     */
+
+    match /fantasyPlayerScores/{scoreId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * --------------------------------------------------------
+     * PUNTEGGI SQUADRE FANTASY
+     * --------------------------------------------------------
+     */
+
+    match /fantasyTeamScores/{scoreId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * BEST OF THE MONTH
+     * ========================================================
+     *
+     * Visibile pubblicamente soltanto quando pubblicato.
+     * Scrittura riservata agli Admin.
+     * ========================================================
+     */
+
+    match /bestOfTheMonth/{itemId} {
+      allow read:
+        if isAdmin()
+        || resource.data.status == "published";
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * SPONSOR
+     * ========================================================
+     *
+     * I dati sponsor sono pubblici perché devono essere letti
+     * dalla Home anche dagli utenti non autenticati.
+     *
+     * Soltanto gli Admin possono creare, modificare o
+     * eliminare sponsor.
+     * ========================================================
+     */
+
+    match /sponsors/{sponsorId} {
+      allow read:
+        if true;
+
+      allow create:
+        if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          "competitionId",
+          "name",
+          "imageUrl",
+          "storagePath",
+          "socialPlatform",
+          "socialUrl",
+          "sortOrder",
+          "active",
+          "createdAt",
+          "updatedAt"
+        ])
+        && request.resource.data.keys().hasAll([
+          "competitionId",
+          "name",
+          "imageUrl",
+          "socialPlatform",
+          "socialUrl",
+          "sortOrder",
+          "active",
+          "createdAt",
+          "updatedAt"
+        ])
+        && request.resource.data.competitionId is string
+        && request.resource.data.competitionId.size() > 0
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.imageUrl is string
+        && request.resource.data.imageUrl.size() > 0
+        && (
+          !request.resource.data.keys().hasAny([
+            "storagePath"
+          ])
+          || request.resource.data.storagePath is string
+        )
+        && request.resource.data.socialPlatform in [
+          "instagram",
+          "facebook",
+          "tiktok"
+        ]
+        && request.resource.data.socialUrl is string
+        && request.resource.data.socialUrl.size() > 0
+        && request.resource.data.socialUrl.size() <= 1000
+        && request.resource.data.sortOrder is number
+        && request.resource.data.active is bool
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update:
+        if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          "competitionId",
+          "name",
+          "imageUrl",
+          "storagePath",
+          "socialPlatform",
+          "socialUrl",
+          "sortOrder",
+          "active",
+          "createdAt",
+          "updatedAt"
+        ])
+        && request.resource.data.keys().hasAll([
+          "competitionId",
+          "name",
+          "imageUrl",
+          "socialPlatform",
+          "socialUrl",
+          "sortOrder",
+          "active",
+          "createdAt",
+          "updatedAt"
+        ])
+        && request.resource.data.competitionId ==
+          resource.data.competitionId
+        && request.resource.data.createdAt ==
+          resource.data.createdAt
+        && request.resource.data.competitionId is string
+        && request.resource.data.competitionId.size() > 0
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.imageUrl is string
+        && request.resource.data.imageUrl.size() > 0
+        && (
+          !request.resource.data.keys().hasAny([
+            "storagePath"
+          ])
+          || request.resource.data.storagePath is string
+        )
+        && request.resource.data.socialPlatform in [
+          "instagram",
+          "facebook",
+          "tiktok"
+        ]
+        && request.resource.data.socialUrl is string
+        && request.resource.data.socialUrl.size() > 0
+        && request.resource.data.socialUrl.size() <= 1000
+        && request.resource.data.sortOrder is number
+        && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * WHATSAPP - SUGGERIMENTI NUOVI GIOCATORI
+     * ========================================================
+     *
+     * I documenti vengono creati dal backend / Cloud Functions.
+     * La dashboard Admin deve poterli leggere e risolvere.
+     * ========================================================
+     */
+
+    match /lineupRosterSuggestions/{documentId} {
+      allow read:
+        if isAdmin();
+
+      /*
+       * La creazione avviene soltanto dal backend / Admin SDK.
+       * La dashboard Admin può invece risolvere o eliminare
+       * segnalazioni già create dal server.
+       */
+      allow create:
+        if false;
+
+      allow update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * FUT CARD LAYOUTS
+     * ========================================================
+     *
+     * Layout universale delle FUT card.
+     * Lettura consentita per mostrare le card nei profili.
+     * Scrittura riservata agli Admin.
+     * ========================================================
+     */
+
+    match /futCardLayouts/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * LUDI STUDIO
+     * ========================================================
+     *
+     * L'editor e tutte le scritture restano riservati agli
+     * amministratori.
+     *
+     * I template sono invece leggibili pubblicamente perché
+     * il Match Report pubblico li usa lato client per generare
+     * al momento l'immagine social di "Condividi tabellino".
+     *
+     * Le grafiche generate persistenti restano Admin-only.
+     * ========================================================
+     */
+
+    match /ludiStudioTemplates/{documentId} {
+      allow read:
+        if true;
+
+      allow create, update, delete:
+        if isAdmin();
+    }
+
+    match /ludiStudioGeneratedAssets/{documentId} {
+      allow read, create, update, delete:
+        if isAdmin();
+    }
+
+    /*
+     * ========================================================
+     * DEFAULT DENY
+     * ========================================================
+     *
+     * Qualsiasi collection non esplicitamente
+     * dichiarata sopra viene bloccata.
+     * ========================================================
+     */
+
+    /*
+     * ========================================================
+     * RESULT PREDICTION
+     * ========================================================
+     *
+     * Un utente autenticato può votare una sola volta per
+     * partita pubblicata. Il documento riepilogativo può essere
+     * creato/aggiornato soltanto nello stesso batch che crea il
+     * proprio voto per la prima volta.
+     * ========================================================
+     */
+
+    match /matchPolls/{matchId} {
+      function currentUserVotePath() {
+        return /databases/$(database)/documents/matchPolls/$(matchId)/votes/$(request.auth.uid);
+      }
+
+      function publishedMatchExists() {
+        return exists(
+          /databases/$(database)/documents/matches/$(matchId)
+        )
+        && get(
+          /databases/$(database)/documents/matches/$(matchId)
+        ).data.published == true;
+      }
+
+      function validPollData() {
+        return request.resource.data.keys().hasOnly([
+          "matchId",
+          "homeVotes",
+          "drawVotes",
+          "awayVotes",
+          "totalVotes",
+          "updatedAt"
+        ])
+        && request.resource.data.matchId == matchId
+        && request.resource.data.homeVotes is int
+        && request.resource.data.homeVotes >= 0
+        && request.resource.data.drawVotes is int
+        && request.resource.data.drawVotes >= 0
+        && request.resource.data.awayVotes is int
+        && request.resource.data.awayVotes >= 0
+        && request.resource.data.totalVotes is int
+        && request.resource.data.totalVotes >= 1
+        && request.resource.data.totalVotes ==
+          request.resource.data.homeVotes +
+          request.resource.data.drawVotes +
+          request.resource.data.awayVotes
+        && request.resource.data.updatedAt == request.time;
+      }
+
+      function firstVoteIsCreatedInThisAtomicWrite() {
+        return request.auth != null
+          && !exists(currentUserVotePath())
+          && existsAfter(currentUserVotePath());
+      }
+
+      function choiceMatchesCounts(home, draw, away) {
+        let choice = getAfter(currentUserVotePath()).data.choice;
+        return (choice == "home" && home == 1 && draw == 0 && away == 0)
+          || (choice == "draw" && home == 0 && draw == 1 && away == 0)
+          || (choice == "away" && home == 0 && draw == 0 && away == 1);
+      }
+
+      allow read:
+        if isAdmin()
+        || (
+          request.auth != null
+          && exists(currentUserVotePath())
+        );
+
+      allow create:
+        if publishedMatchExists()
+        && firstVoteIsCreatedInThisAtomicWrite()
+        && validPollData()
+        && request.resource.data.totalVotes == 1
+        && choiceMatchesCounts(request.resource.data.homeVotes,
+          request.resource.data.drawVotes, request.resource.data.awayVotes);
+
+      allow update:
+        if publishedMatchExists()
+        && firstVoteIsCreatedInThisAtomicWrite()
+        && validPollData()
+        && request.resource.data.homeVotes >= resource.data.homeVotes
+        && request.resource.data.drawVotes >= resource.data.drawVotes
+        && request.resource.data.awayVotes >= resource.data.awayVotes
+        && request.resource.data.totalVotes == resource.data.totalVotes + 1
+        && choiceMatchesCounts(
+          request.resource.data.homeVotes - resource.data.homeVotes,
+          request.resource.data.drawVotes - resource.data.drawVotes,
+          request.resource.data.awayVotes - resource.data.awayVotes)
+        && (
+          request.resource.data.homeVotes == resource.data.homeVotes + 1
+          && request.resource.data.drawVotes == resource.data.drawVotes
+          && request.resource.data.awayVotes == resource.data.awayVotes
+          || request.resource.data.homeVotes == resource.data.homeVotes
+          && request.resource.data.drawVotes == resource.data.drawVotes + 1
+          && request.resource.data.awayVotes == resource.data.awayVotes
+          || request.resource.data.homeVotes == resource.data.homeVotes
+          && request.resource.data.drawVotes == resource.data.drawVotes
+          && request.resource.data.awayVotes == resource.data.awayVotes + 1
+        );
+
+      allow delete:
+        if false;
+
+      match /votes/{userId} {
+        allow read:
+          if isAdmin()
+          || (
+            request.auth != null
+            && request.auth.uid == userId
+          );
+
+        allow create:
+          if request.auth != null
+          && request.auth.uid == userId
+          && publishedMatchExists()
+          && request.resource.data.keys().hasOnly([
+            "userId",
+            "choice",
+            "createdAt"
+          ])
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.choice in [
+            "home",
+            "draw",
+            "away"
+          ]
+          && request.resource.data.createdAt == request.time
+          && existsAfter(/databases/$(database)/documents/matchPolls/$(matchId))
+          && getAfter(/databases/$(database)/documents/matchPolls/$(matchId)).data.updatedAt == request.time
+          && ((!exists(/databases/$(database)/documents/matchPolls/$(matchId))
+                && getAfter(/databases/$(database)/documents/matchPolls/$(matchId)).data.totalVotes == 1)
+            || (exists(/databases/$(database)/documents/matchPolls/$(matchId))
+                && getAfter(/databases/$(database)/documents/matchPolls/$(matchId)).data.totalVotes ==
+                  get(/databases/$(database)/documents/matchPolls/$(matchId)).data.totalVotes + 1));
+
+        allow update, delete:
+          if false;
+      }
+    }
+
+    /* BUILD XI usa soltanto API server/Admin SDK. */
+    match /gamesVotingPolls/{pollId} {
+      allow read, write: if false;
+    }
+
+    match /gamesBuildXiSubmissions/{submissionId} {
+      allow read, write: if false;
+    }
+
+    /* Championship Prediction usa soltanto API server/Admin SDK. */
+    match /gamesPredictionConfigs/{gameId} {
+      allow read, write: if false;
+    }
+
+    match /gamesPredictionSubmissions/{submissionId} {
+      allow read, write: if false;
+    }
+
+    /* League One Survivor usa soltanto API server/Admin SDK. */
+    match /gamesSurvivorConfigs/{gameId} {
+      allow read, write: if false;
+    }
+
+    match /gamesSurvivorEntries/{entryId} {
+      allow read, write: if false;
+    }
+
+    match /gamesFriendGroups/{groupId} { allow read, write: if false; }
+    match /gamesFriendMemberships/{membershipId} { allow read, write: if false; }
+    match /matchReportDrafts/{draftId} { allow read, write: if isAdmin(); }
+    match /matchPublicationJobs/{jobId} { allow read, write: if isAdmin(); }
+    match /matchPublicationLocks/{seasonId} { allow read, write: if isAdmin(); }
+    match /matchReports/{matchId}/versions/{version} { allow read, write: if isAdmin(); }
+    match /finalStageMatchReports/{matchId}/versions/{version} { allow read, write: if isAdmin(); }
+
+    match /{document=**} {
+      allow read, write:
+        if false;
+    }
+    // Centro operativo: tutte le letture e scritture passano dalle API admin.
+    match /adminOperationalTasks/{id} { allow read, write: if false; }
+    match /adminOperationalReminders/{id} { allow read, write: if false; }
+    match /adminOperationalBriefs/{id} { allow read, write: if false; }
+  }
+}

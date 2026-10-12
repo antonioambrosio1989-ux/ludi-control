@@ -382,6 +382,9 @@ const seasonTeamOptions =
     "scheduled",
   );
 
+  const [isPublishingMatchweek, setIsPublishingMatchweek] =
+    useState(false);
+
   const latestMatchweek =
   useMemo(() => {
     if (matches.length === 0) {
@@ -1116,6 +1119,53 @@ async function handleCreateMatch() {
     }
   }
 
+  const selectedWeekMatches =
+    typeof effectiveSelectedMatchweek === "number"
+      ? matches.filter((match) => match.matchweek === effectiveSelectedMatchweek)
+      : [];
+
+  const isSelectedWeekPublished =
+    selectedWeekMatches.length > 0 &&
+    selectedWeekMatches.every((match) => match.published === true);
+
+  async function handlePublishMatchweek() {
+    if (
+      !currentSeasonId ||
+      typeof effectiveSelectedMatchweek !== "number" ||
+      selectedWeekMatches.length === 0 ||
+      isSelectedWeekPublished ||
+      isPublishingMatchweek
+    ) {
+      return;
+    }
+
+    const week = effectiveSelectedMatchweek;
+    if (!window.confirm(`Pubblicare la Matchweek ${week} sul sito pubblico?`)) {
+      return;
+    }
+
+    setIsPublishingMatchweek(true);
+    setActionError(null);
+    setActionSuccess(null);
+
+    try {
+      const count = await FirebaseMatchRepository.setMatchweekPublished({
+        seasonId: currentSeasonId,
+        matchweek: week,
+        published: true,
+      });
+      setActionSuccess(`Matchweek ${week} pubblicata: ${count} partite visibili sul sito.`);
+    } catch (currentError) {
+      setActionError(
+        currentError instanceof Error
+          ? currentError.message
+          : "Impossibile pubblicare la giornata.",
+      );
+    } finally {
+      setIsPublishingMatchweek(false);
+    }
+  }
+
   const completedMatches =
     filteredMatches.filter(
       (match) =>
@@ -1835,6 +1885,30 @@ async function handleCreateMatch() {
               )}
             </select>
           </label>
+          {typeof effectiveSelectedMatchweek === "number" &&
+            selectedWeekMatches.length > 0 && (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <span className={`text-xs font-black ${
+                  isSelectedWeekPublished ? "text-green-700" : "text-amber-700"
+                }`}>
+                  {isSelectedWeekPublished
+                    ? "Giornata pubblicata"
+                    : "Giornata non ancora pubblicata"}
+                </span>
+                {!isSelectedWeekPublished && (
+                  <button
+                    type="button"
+                    disabled={isPublishingMatchweek || isLoading}
+                    onClick={() => { void handlePublishMatchweek(); }}
+                    className="rounded-[13px] bg-[#06142E] px-4 py-3 text-xs font-black uppercase text-white disabled:opacity-40"
+                  >
+                    {isPublishingMatchweek
+                      ? "Pubblicazione..."
+                      : `Pubblica Matchweek ${effectiveSelectedMatchweek}`}
+                  </button>
+                )}
+              </div>
+            )}
         </article>
       </section>
 

@@ -1996,12 +1996,7 @@ export default function LudiStudioScreen() {
                 <p className="mt-3 text-sm font-black uppercase">{item.label}</p>
                 <p className={`mt-1 text-[11px] font-bold ${active ? "text-white/55" : "text-[#06142E]/40"}`}>{item.description}</p>
                 <p className={`mt-2 text-[10px] font-black ${active ? "text-[#D9FF43]" : "text-[#06142E]/35"}`}>
-                  {item.type === "matchday" ||
-                  item.type === "man_of_the_match" ||
-                  item.type === "score_prediction" ||
-                  item.type === "match_report"
-                    ? "1080 × 1920"
-                    : "1080 × 1350"}
+                  {`1080 × 1920`}
                 </p>
               </button>
             );

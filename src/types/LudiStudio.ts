@@ -9,14 +9,14 @@ export type LudiStudioTemplateType =
 
 export const LUDI_STUDIO_CANVAS_SIZES: Record<
   LudiStudioTemplateType,
-  { width: 1080; height: 1920 | 1350 }
+  { width: 1080; height: 1920 }
 > = {
   matchday: { width: 1080, height: 1920 },
   man_of_the_match: { width: 1080, height: 1920 },
   score_prediction: { width: 1080, height: 1920 },
-  standings: { width: 1080, height: 1350 },
-  results: { width: 1080, height: 1350 },
-  fixtures: { width: 1080, height: 1350 },
+  standings: { width: 1080, height: 1920 },
+  results: { width: 1080, height: 1920 },
+  fixtures: { width: 1080, height: 1920 },
   match_report: { width: 1080, height: 1920 },
 };
 
@@ -309,7 +309,7 @@ export type LudiStudioTemplateDefinition = {
   competitionId: string;
   templateType: LudiStudioTemplateType;
   width: 1080;
-  height: 1920 | 1350;
+  height: 1920;
   background: string;
   foreground: string;
   accent: string;
@@ -333,7 +333,7 @@ export type LudiStudioGeneratedAsset = {
   imageKey?: string;
   imageDataUrl?: string;
   width: 1080;
-  height: 1920 | 1350;
+  height: 1920;
   createdAt?: unknown;
   updatedAt?: unknown;
 };

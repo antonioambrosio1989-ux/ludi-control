@@ -387,12 +387,9 @@ function renderStandingRow(
             width
           : x;
 
-    const baseline =
-      element.y +
-      rowHeight *
-        0.67;
-
-    return `<text x="${textX}" y="${baseline}" text-anchor="${anchor}" fill="${attr(color)}" font-family="${attr(element.fontFamily)}" font-size="${fontSize}" font-weight="${fontWeight}">${esc(value)}</text>`;
+    // Tutte le celle testuali della riga condividono il centro verticale
+    // del logo e della riga: posizione, squadra, PG, DR e punti.
+    return `<text x="${textX}" y="${verticalCenter}" dominant-baseline="central" text-anchor="${anchor}" fill="${attr(color)}" font-family="${attr(element.fontFamily)}" font-size="${fontSize}" font-weight="${fontWeight}">${esc(value)}</text>`;
   }
 
   let cursorX =
@@ -626,10 +623,10 @@ function renderStandings(
 
     return `<g>
       <rect x="${element.x}" y="${y}" width="${element.width}" height="${element.rowHeight}" rx="${Math.min(18, element.rowHeight / 3)}" fill="${attr(element.surfaceColor)}"/>
-      <text x="${element.x + 24}" y="${centerY}" dominant-baseline="middle" fill="${attr(element.color)}" font-family="${attr(element.fontFamily)}" font-size="${Math.max(18, element.fontSize - 2)}" font-weight="${element.fontWeight}">${row.position}</text>
+      <text x="${element.x + 24}" y="${centerY}" dominant-baseline="central" fill="${attr(element.color)}" font-family="${attr(element.fontFamily)}" font-size="${Math.max(18, element.fontSize - 2)}" font-weight="${element.fontWeight}">${row.position}</text>
       ${element.showLogos && row.team.logoUrl ? `<image href="${attr(row.team.logoUrl)}" x="${logoX}" y="${y + (element.rowHeight - element.logoSize) / 2}" width="${element.logoSize}" height="${element.logoSize}" preserveAspectRatio="xMidYMid meet"/>` : ""}
-      ${element.showNames ? `<text x="${textX}" y="${centerY}" dominant-baseline="middle" fill="${attr(element.color)}" font-family="${attr(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}">${esc(row.team.aliasName || row.team.name)}</text>` : ""}
-      <text x="${element.x + element.width - 28}" y="${centerY}" dominant-baseline="middle" text-anchor="end" fill="${attr(element.color)}" font-family="${attr(element.fontFamily)}" font-size="${element.fontSize}" font-weight="900">${row.points}</text>
+      ${element.showNames ? `<text x="${textX}" y="${centerY}" dominant-baseline="central" fill="${attr(element.color)}" font-family="${attr(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}">${esc(row.team.aliasName || row.team.name)}</text>` : ""}
+      <text x="${element.x + element.width - 28}" y="${centerY}" dominant-baseline="central" text-anchor="end" fill="${attr(element.color)}" font-family="${attr(element.fontFamily)}" font-size="${element.fontSize}" font-weight="900">${row.points}</text>
     </g>`;
   }).join("");
 }

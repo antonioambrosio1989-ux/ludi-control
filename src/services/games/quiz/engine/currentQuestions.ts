@@ -84,7 +84,7 @@ export function generateCurrentCandidates(
         ),
         answers: answers.answers,
         correctAnswerIndex: answers.correctAnswerIndex,
-        explanation: `Al momento della generazione, ${leaderLabel} è in testa con ${formatMetricValue(metric.family, maximum)}.`,
+        explanation: `In questo momento, ${leaderLabel} è in testa con ${formatMetricValue(metric.family, maximum)}.`,
         fingerprint: semanticFingerprint(
           "current_leader",
           metric.family,
@@ -118,9 +118,9 @@ export function currentLeaderPrompt(
   seasonName: string,
 ): string {
   if (family === "goals") {
-    return `Chi è il capocannoniere della ${competitionName} ${seasonName} al momento della generazione?`;
+    return `Chi è il capocannoniere della ${competitionName} ${seasonName} in questo momento?`;
   }
-  return `Chi è in testa per ${label} nella ${competitionName} ${seasonName} al momento della generazione?`;
+  return `Chi è in testa per ${label} nella ${competitionName} ${seasonName} in questo momento?`;
 }
 
 export function getSignificantCurrentGroupKeys(

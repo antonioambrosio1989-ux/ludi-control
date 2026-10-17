@@ -442,7 +442,7 @@ function sortByGoalsForAndTeamId(
 
 /*
  * ============================================================
- * PREMIER LEAGUE / LEAGUE ONE
+ * TUTTE LE COMPETIZIONI
  * ============================================================
  *
  * 1. Punti
@@ -486,98 +486,19 @@ function sortGoalDifferenceFirst(
 
 /*
  * ============================================================
- * CHAMPIONSHIP
- * ============================================================
- *
- * 1. Punti
- * 2. Scontri diretti
- * 3. Differenza reti
- * 4. Gol fatti
- * ============================================================
- */
-
-function sortHeadToHeadFirst(
-  rows:
-    StandingRow[],
-
-  results:
-    StandingMatchResult[],
-): StandingRow[] {
-  return groupByHeadToHead(
-    rows,
-    results,
-  ).flatMap(
-    (
-      headToHeadGroup,
-    ) =>
-      groupByDescendingMetric(
-        headToHeadGroup,
-
-        (
-          row,
-        ) =>
-          row.goalDifference,
-      ).flatMap(
-        (
-          goalDifferenceGroup,
-        ) =>
-          sortByGoalsForAndTeamId(
-            goalDifferenceGroup,
-          ),
-      ),
-  );
-}
-
-/*
- * ============================================================
  * SORT STANDINGS
  * ============================================================
  */
 
 function sortStandings(
-  rows:
-    StandingRow[],
-
-  results:
-    StandingMatchResult[],
-
-  competitionId?:
-    string,
+  rows: StandingRow[],
+  results: StandingMatchResult[],
 ): StandingRow[] {
-  const pointsGroups =
-    groupByDescendingMetric(
-      rows,
-
-      (
-        row,
-      ) =>
-        row.points,
-    );
-
-  return pointsGroups.flatMap(
-    (
-      pointsGroup,
-    ) => {
-      if (
-        competitionId ===
-        "championship"
-      ) {
-        return sortHeadToHeadFirst(
-          pointsGroup,
-          results,
-        );
-      }
-
-      /*
-       * Premier League,
-       * League One
-       * e fallback legacy.
-       */
-      return sortGoalDifferenceFirst(
-        pointsGroup,
-        results,
-      );
-    },
+  // Regola uniforme per tutte le competizioni:
+  // 1. Punti; 2. Differenza reti; 3. Scontri diretti; 4. Gol fatti;
+  // 5. ID squadra (ordinamento stabile).
+  return groupByDescendingMetric(rows, (row) => row.points).flatMap(
+    (pointsGroup) => sortGoalDifferenceFirst(pointsGroup, results),
   );
 }
 
@@ -900,6 +821,5 @@ export function calculateStandings(
   return sortStandings(
     rows,
     results,
-    options.competitionId,
   );
 }

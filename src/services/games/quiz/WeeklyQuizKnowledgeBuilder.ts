@@ -49,6 +49,7 @@ import type {
   QuizHistoricalAwardFact,
   QuizHistoricalFinalFact,
   QuizHistoricalPlayerSeasonStats,
+  QuizHistoricalPlayerPalmaresTitle,
   QuizHistoricalTeamTitleFact,
   QuizPlayerIdentity,
   QuizTeamIdentity,
@@ -290,6 +291,9 @@ export class WeeklyQuizKnowledgeBuilder
         players,
       );
 
+    const historicalPlayerPalmaresTitles =
+      buildHistoricalPlayerPalmaresTitles(players);
+
     return {
       generatedAtMs,
 
@@ -302,6 +306,7 @@ export class WeeklyQuizKnowledgeBuilder
       historicalAwards,
 
       historicalTeamTitles,
+      historicalPlayerPalmaresTitles,
     };
   }
 }
@@ -1183,6 +1188,34 @@ function findDecisiveScorerName(
   }
 
   return undefined;
+}
+
+/*
+ * PALMARÈS DEL SINGOLO GIOCATORE
+ *
+ * Non inferire i trofei di un giocatore dallo storico delle squadre:
+ * il record deve appartenere esplicitamente a player.achievements.
+ */
+function buildHistoricalPlayerPalmaresTitles(
+  players: PlayerProfile[],
+): QuizHistoricalPlayerPalmaresTitle[] {
+  const uniqueTitles = new Map<string, QuizHistoricalPlayerPalmaresTitle>();
+  for (const player of players) {
+    const playerId = String(player.id);
+    for (const achievement of player.achievements ?? []) {
+      const title = achievement.title?.trim() ?? "";
+      if (!/^campione\b/i.test(title)) continue;
+      const competitionId = achievement.competitionId?.trim() ?? "";
+      const seasonId = achievement.seasonId?.trim() ?? "";
+      if (!competitionId || !seasonId) continue;
+      const phase: QuizHistoricalPlayerPalmaresTitle["phase"] =
+        achievement.competition === "regularSeason" ? "regularSeason" : "finalStage";
+      const value = { playerId, competitionId, seasonId, phase, title };
+      const key = [playerId, competitionId, seasonId, phase, title.toLocaleLowerCase("it")].join("::");
+      uniqueTitles.set(key, value);
+    }
+  }
+  return [...uniqueTitles.values()];
 }
 
 /*

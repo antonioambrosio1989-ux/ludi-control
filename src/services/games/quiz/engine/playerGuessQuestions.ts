@@ -1,6 +1,6 @@
 import type { WeeklyQuizKnowledgeBase, QuizPlayerIdentity } from "@/src/types/GamesWeeklyQuiz";
-import type { Candidate, CompetitionFamily, CareerProfile, TeamTitleFact, PlayerClue } from "./types";
-import { collectTeamTitleFacts, unique, competitionFamilyFromId, shuffle, combinations, WHOS_THE_PLAYER_MAX_CLUE_SETS, WHOS_THE_PLAYER_MIN_SIGNIFICANT_GOALS, playerIdentityKey, createChoiceSetFromExactDistractors, semanticFingerprint, snapshot, WHOS_THE_PLAYER_MAX_CANDIDATES, deduplicateCandidates, normalizeKey, sameCompetitionFamily, teamIdentityKey, competitionNameFromId, classifyRelevantAward, normalizeText } from "./utils";
+import type { Candidate, CompetitionFamily, CareerProfile, PlayerClue } from "./types";
+import { unique, competitionFamilyFromId, shuffle, combinations, WHOS_THE_PLAYER_MAX_CLUE_SETS, WHOS_THE_PLAYER_MIN_SIGNIFICANT_GOALS, playerIdentityKey, createChoiceSetFromExactDistractors, semanticFingerprint, snapshot, WHOS_THE_PLAYER_MAX_CANDIDATES, deduplicateCandidates, normalizeKey, sameCompetitionFamily, competitionNameFromId, classifyRelevantAward, normalizeText } from "./utils";
 
 /* ============================================================
  * WHO'S THE PLAYER: three/four historical clues, one unique solution.
@@ -20,7 +20,6 @@ export function generateWhosThePlayerCandidates(
    * famiglia di competizione e ci fermiamo dopo un piccolo pool di candidati
    * validi e non usati di recente.
    */
-  const teamTitleFacts = collectTeamTitleFacts(kb);
   const families = unique(
     profiles.flatMap((profile) =>
       profile.historical.map((row) =>
@@ -31,7 +30,7 @@ export function generateWhosThePlayerCandidates(
 
   const scopedProfilesByFamily = new Map<CompetitionFamily, CareerProfile[]>();
   for (const family of families) {
-    const titleLookup = buildTeamTitleLookup(teamTitleFacts, family);
+    const titleLookup = buildPlayerPalmaresLookup(kb, family);
     scopedProfilesByFamily.set(
       family,
       profiles
@@ -167,7 +166,7 @@ export function generateWhosThePlayerCandidates(
             .join("\n")}`,
           answers: choiceSet.answers,
           correctAnswerIndex: choiceSet.correctAnswerIndex,
-          explanation: `Il giocatore è ${targetLabel}: tutti gli indizi storici corrispondono al suo percorso nella stessa famiglia di competizione.`,
+          explanation: `Risposta individuata nell’archivio: ${targetLabel}. Riscontri utilizzati: ${clueSet.map((clue) => clue.text).join(" ")}. I dati sono quelli storici registrati per la competizione; eventuali lacune nell’archivio devono essere verificate prima della pubblicazione.`,
           fingerprint,
           sourceSnapshot: snapshot(kb, {
             competitionIds,
@@ -232,6 +231,10 @@ export function buildCareerProfiles(kb: WeeklyQuizKnowledgeBase): CareerProfile[
   };
 
   for (const row of kb.historicalPlayerSeasons) {
+    // Essere presenti in una rosa o in un documento statistico non prova
+    // di aver giocato una stagione: evitiamo indizi su presenze fittizie.
+    if (!Number.isFinite(row.appearances) || row.appearances <= 0) continue;
+    if (!row.seasonId.trim() || !row.competitionId.trim()) continue;
     ensure(row.player)?.historical.push(row);
   }
   for (const row of kb.currentPlayers) {
@@ -278,47 +281,39 @@ export function buildCareerProfiles(kb: WeeklyQuizKnowledgeBase): CareerProfile[
   );
 }
 
-export function buildTeamTitleLookup(
-  facts: TeamTitleFact[],
+/**
+ * I titoli appartengono al palmarès INDIVIDUALE del giocatore.
+ * Non vanno attribuiti automaticamente a tutta la rosa di una squadra
+ * vincitrice: una squadra può avere più trofei di un singolo giocatore.
+ */
+export function buildPlayerPalmaresLookup(
+  kb: WeeklyQuizKnowledgeBase,
   family: CompetitionFamily,
 ): Map<string, Set<string>> {
-  const lookup = new Map<string, Set<string>>();
+  const titlesByPlayerId = new Map<string, Set<string>>();
 
-  const add = (key: string, titleKey: string) => {
-    const values = lookup.get(key) ?? new Set<string>();
-    values.add(titleKey);
-    lookup.set(key, values);
-  };
-
-  for (const title of facts) {
+  for (const title of kb.historicalPlayerPalmaresTitles ?? []) {
     if (competitionFamilyFromId(title.competitionId) !== family) continue;
-
+    const playerId = title.playerId.trim();
+    if (!playerId) continue;
     const titleKey = [
-      family,
+      title.competitionId,
       title.seasonId,
       title.phase,
-      teamIdentityKey(title.teamId, title.teamName),
+      normalizeKey(title.title),
     ].join("::");
-
-    if (title.teamId?.trim()) {
-      add(
-        `${title.seasonId}::id:${title.teamId.trim()}`,
-        titleKey,
-      );
-    }
-    add(
-      `${title.seasonId}::name:${normalizeKey(title.teamName)}`,
-      titleKey,
-    );
+    const titles = titlesByPlayerId.get(playerId) ?? new Set<string>();
+    titles.add(titleKey);
+    titlesByPlayerId.set(playerId, titles);
   }
 
-  return lookup;
+  return titlesByPlayerId;
 }
 
 export function scopeCareerProfile(
   profile: CareerProfile,
   family: CompetitionFamily,
-  titleLookup: Map<string, Set<string>>,
+  playerPalmaresLookup: Map<string, Set<string>>,
 ): CareerProfile {
   const historical = profile.historical.filter(
     (row) => competitionFamilyFromId(row.competitionId) === family,
@@ -330,30 +325,12 @@ export function scopeCareerProfile(
     (award) => competitionFamilyFromId(award.competitionId) === family,
   );
 
-  const titleKeys = new Set<string>();
-  for (const row of historical) {
-    const lookupKeys = [
-      row.teamId?.trim()
-        ? `${row.seasonId}::id:${row.teamId.trim()}`
-        : "",
-      row.teamName?.trim()
-        ? `${row.seasonId}::name:${normalizeKey(row.teamName)}`
-        : "",
-    ].filter(Boolean);
-
-    for (const lookupKey of lookupKeys) {
-      for (const titleKey of titleLookup.get(lookupKey) ?? []) {
-        titleKeys.add(titleKey);
-      }
-    }
-  }
-
   return {
     player: profile.player,
     historical,
     current,
     awards,
-    titleCount: titleKeys.size,
+    titleCount: playerPalmaresLookup.get(profile.player.playerId)?.size ?? 0,
   };
 }
 
@@ -418,17 +395,13 @@ export function buildCluesForTarget(target: CareerProfile): PlayerClue[] {
     ).size;
     if (editions < 2) continue;
     const competitionName = competitionNameFromId(competitionId);
-    const editionsQualifier =
-      editions <= 4
-        ? "SOLO"
-        : editions <= 7
-          ? "ESATTAMENTE"
-          : "BEN";
     clues.push({
       key: `editions:${competitionId}:${editions}`,
       category: "editions",
       source: "career",
-      text: `Ha partecipato a ${editionsQualifier} ${editions} edizioni della ${competitionName}.`,
+      // L'archivio potrebbe non contenere tutte le stagioni della carriera:
+      // non scrivere mai "SOLO" o "ESATTAMENTE" come dato assoluto.
+      text: `Nell'archivio risultano ${editions} stagioni disputate nella ${competitionName}.`,
       priority: 820,
       matches: (profile) =>
         new Set(
@@ -468,7 +441,8 @@ export function buildCluesForTarget(target: CareerProfile): PlayerClue[] {
       key: `titles:${target.titleCount}`,
       category: "titles",
       source: "career",
-      text: `Ha vinto ${target.titleCount} ${target.titleCount === 1 ? "competizione" : "competizioni"} con la propria squadra.`,
+      // Dato esclusivo del palmarès personale salvato nell'anagrafica.
+      text: `Nel suo palmarès risultano ${target.titleCount} ${target.titleCount === 1 ? "titolo" : "titoli"} conquistati.`,
       priority: 900,
       matches: (profile) => profile.titleCount === target.titleCount,
     });

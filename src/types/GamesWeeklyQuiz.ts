@@ -241,6 +241,15 @@ export type QuizHistoricalTeamTitleFact = {
   teamName: string;
 };
 
+/** Titolo di squadra esplicitamente registrato nel palmarès del giocatore. */
+export type QuizHistoricalPlayerPalmaresTitle = {
+  playerId: string;
+  competitionId: string;
+  seasonId: string;
+  phase: "regularSeason" | "finalStage";
+  title: string;
+};
+
 export type WeeklyQuizKnowledgeBase = {
   generatedAtMs: number;
   currentPlayers: QuizCurrentPlayerStats[];
@@ -252,6 +261,8 @@ export type WeeklyQuizKnowledgeBase = {
    * Opzionale per mantenere compatibili fixture e snapshot precedenti.
    */
   historicalTeamTitles?: QuizHistoricalTeamTitleFact[];
+  /** Solo i titoli effettivamente presenti nel palmarès del singolo giocatore. */
+  historicalPlayerPalmaresTitles?: QuizHistoricalPlayerPalmaresTitle[];
 };
 
 export type WeeklyQuizGenerationInput = {

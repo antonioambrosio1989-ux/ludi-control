@@ -1,3 +1,4 @@
+import { parseTemporaryGoalkeeperId } from "@/src/services/match/TemporaryMatchPlayer";
 import type {
   MatchweekAwardPlayer,
 } from "@/src/application/matchweek-awards/MatchweekAwardsEngine";
@@ -357,6 +358,8 @@ export class MatchweekDataBuilder {
         return existing;
       }
 
+      const temporaryGoalkeeper = parseTemporaryGoalkeeperId(playerId);
+
       const player =
         playersById.get(
           playerId,
@@ -368,6 +371,7 @@ export class MatchweekDataBuilder {
         );
 
       const resolvedTeamId =
+        temporaryGoalkeeper?.teamId ||
         teamId ||
         String(
           seasonPlayer?.teamId ??
@@ -386,7 +390,7 @@ export class MatchweekDataBuilder {
         playerName:
   player
     ? `${player.firstName} ${player.lastName}`.trim()
-    : "Giocatore non disponibile",
+    : temporaryGoalkeeper?.name ?? "Giocatore non disponibile",
 
 photoUrl:
   player?.photoUrl
@@ -402,7 +406,7 @@ teamId:
           "Squadra non disponibile",
 
         role:
-          seasonPlayer?.role,
+          temporaryGoalkeeper?.role ?? seasonPlayer?.role,
 
         appearances:
           0,
@@ -668,6 +672,7 @@ teamId:
               mvpPlayerId,
 
             teamId:
+              parseTemporaryGoalkeeperId(mvpPlayerId)?.teamId ??
               String(
                 seasonPlayer?.teamId ??
                   "",
@@ -862,7 +867,7 @@ function addGoalkeeperCleanSheet({
       );
 
     if (
-      seasonPlayer?.role !==
+      (seasonPlayer?.role ?? parseTemporaryGoalkeeperId(playerId)?.role) !==
       "Portiere"
     ) {
       continue;

@@ -642,6 +642,38 @@ export default function LudiStudioCanvasEditor({
                 Squadra non disponibile
               </div>
             );
+        } else if (element.binding === "topScorersList") {
+          const entries = (payload.topScorers ?? []).slice(0, Math.min(5, element.maxRows));
+          const scale = 430 / template.width;
+          content = (
+            <div className="h-full w-full overflow-hidden">
+              {entries.map((entry, index) => (
+                <div
+                  key={entry.playerId}
+                  className="absolute left-0 flex w-full items-center overflow-hidden"
+                  style={{
+                    top: `${((element.rowHeight + element.rowGap) * index / element.height) * 100}%`,
+                    height: `${(element.rowHeight / element.height) * 100}%`,
+                    backgroundColor: element.surfaceColor === "transparent" ? "transparent" : element.surfaceColor,
+                    color: element.color,
+                    fontFamily: element.fontFamily,
+                    fontSize: `${element.fontSize * scale}px`,
+                    fontWeight: element.fontWeight,
+                  }}
+                >
+                  <div className="flex shrink-0 items-center justify-center" style={{ width: `${Math.min(element.rowHeight, element.logoSize + 16) * scale}px` }}>
+                    {element.showLogos && entry.teamLogoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={entry.teamLogoUrl} alt={entry.teamName} draggable={false} className="pointer-events-none object-contain" style={{ width: `${element.logoSize * scale}px`, height: `${element.logoSize * scale}px` }} />
+                    ) : null}
+                  </div>
+                  <span className="min-w-0 flex-1 truncate pl-2">{element.showNames ? entry.surname.toLocaleUpperCase("it-IT") : null}</span>
+                  <span className="shrink-0 px-3 text-right">{entry.goals}</span>
+                </div>
+              ))}
+              {entries.length === 0 ? <div className="flex h-full items-center justify-center text-xs font-bold">Nessun marcatore disponibile</div> : null}
+            </div>
+          );
         } else if (
           element.binding === "fixturesList" ||
           element.binding === "resultsList"

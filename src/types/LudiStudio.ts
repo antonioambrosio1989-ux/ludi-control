@@ -5,7 +5,8 @@ export type LudiStudioTemplateType =
   | "standings"
   | "results"
   | "fixtures"
-  | "match_report";
+  | "match_report"
+  | "top_scorer";
 
 export const LUDI_STUDIO_CANVAS_SIZES: Record<
   LudiStudioTemplateType,
@@ -18,6 +19,7 @@ export const LUDI_STUDIO_CANVAS_SIZES: Record<
   results: { width: 1080, height: 1920 },
   fixtures: { width: 1080, height: 1920 },
   match_report: { width: 1080, height: 1920 },
+  top_scorer: { width: 1080, height: 1920 },
 };
 
 export function getLudiStudioCanvasSize(
@@ -75,6 +77,7 @@ export type LudiStudioDynamicBinding =
   | "standingsTable"
   | "resultsList"
   | "fixturesList"
+  | "topScorersList"
   | "homeGoalsList"
   | "awayGoalsList"
   | "homeSanctionsList"
@@ -122,6 +125,7 @@ export type LudiStudioDynamicTextElement = LudiStudioBaseElement & {
     | "standingsTable"
     | "resultsList"
     | "fixturesList"
+    | "topScorersList"
     | "homeGoalsList"
     | "awayGoalsList"
     | "homeSanctionsList"
@@ -168,6 +172,7 @@ export type LudiStudioRepeaterElement = LudiStudioBaseElement & {
     | "standingsTable"
     | "resultsList"
     | "fixturesList"
+    | "topScorersList"
     | "homeGoalsList"
     | "awayGoalsList"
     | "homeSanctionsList"
@@ -585,6 +590,25 @@ export function createDefaultLudiStudioElements(
         dynamicImage("report-mvp-photo", "Foto MVP", "playerPhoto", 405, 1480, 270, 270),
         dynamicText("report-mvp-name", "MVP", "playerName", 190, 1760, 700, 70, 40),
         dynamicText("report-mvp-rating", "Voto MVP", "playerRating", 390, 1830, 300, 58, 30),
+      ];
+
+    case "top_scorer":
+      return [
+        dynamicText("scorer-title", "Titolo", "competitionName", 170, 230, 740, 85, 45),
+        {
+          ...repeater("top-scorers-list", "Top 5 marcatori", "topScorersList", 850),
+          x: 115,
+          y: 570,
+          width: 850,
+          rowHeight: 140,
+          rowGap: 20,
+          maxRows: 5,
+          logoSize: 96,
+          fontSize: 49,
+          fontWeight: 900,
+          color: "#ffffff",
+          surfaceColor: "transparent",
+        },
       ];
 
     case "standings":

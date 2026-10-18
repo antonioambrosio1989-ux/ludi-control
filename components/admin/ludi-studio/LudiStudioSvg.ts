@@ -37,6 +37,14 @@ export type SvgStanding = {
   goalDifference?: number;
 };
 
+export type SvgTopScorer = {
+  playerId: string;
+  surname: string;
+  goals: number;
+  teamLogoUrl?: string;
+  teamName: string;
+};
+
 export type LudiStudioSvgPayload = {
   templateType: LudiStudioTemplateType;
   competitionName: string;
@@ -46,6 +54,7 @@ export type LudiStudioSvgPayload = {
   match?: SvgMatch;
   matches?: SvgMatch[];
   standings?: SvgStanding[];
+  topScorers?: SvgTopScorer[];
   playerName?: string;
   playerTeam?: string;
   playerTeamLogoUrl?: string;
@@ -996,6 +1005,28 @@ function renderTextRows(
     .join("");
 }
 
+function renderTopScorers(element: LudiStudioRepeaterElement, payload: LudiStudioSvgPayload) {
+  const entries = (payload.topScorers ?? []).slice(0, Math.min(5, element.maxRows));
+  const logoWidth = Math.min(element.rowHeight, element.logoSize + 16);
+  const goalsWidth = Math.max(85, element.fontSize * 2);
+  const surnameX = element.x + logoWidth + 22;
+  const goalsX = element.x + element.width - 12;
+  return entries.map((entry, index) => {
+    const centerY = element.y + index * (element.rowHeight + element.rowGap) + element.rowHeight / 2;
+    const logoSize = Math.min(element.logoSize, element.rowHeight);
+    const logoX = element.x + (logoWidth - logoSize) / 2;
+    const logoY = centerY - logoSize / 2;
+    const logo = element.showLogos && entry.teamLogoUrl
+      ? `<image href="${attr(entry.teamLogoUrl)}" x="${logoX}" y="${logoY}" width="${logoSize}" height="${logoSize}" preserveAspectRatio="xMidYMid meet"/>`
+      : "";
+    const textWidth = Math.max(0, goalsX - goalsWidth - surnameX);
+    const surname = element.showNames
+      ? `<svg x="${surnameX}" y="${centerY - element.rowHeight / 2}" width="${textWidth}" height="${element.rowHeight}" overflow="hidden"><text x="0" y="${element.rowHeight / 2}" dominant-baseline="central" fill="${attr(element.color)}" font-family="${attr(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}">${esc(entry.surname.toLocaleUpperCase("it-IT"))}</text></svg>`
+      : "";
+    return `<g>${element.surfaceColor !== "transparent" ? `<rect x="${element.x}" y="${centerY - element.rowHeight / 2}" width="${element.width}" height="${element.rowHeight}" rx="12" fill="${attr(element.surfaceColor)}"/>` : ""}${logo}${surname}<text x="${goalsX}" y="${centerY}" dominant-baseline="central" text-anchor="end" font-family="${attr(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" fill="${attr(element.color)}">${entry.goals}</text></g>`;
+  }).join("");
+}
+
 function renderRepeaterElement(
   element: LudiStudioRepeaterElement,
   payload: LudiStudioSvgPayload,
@@ -1027,6 +1058,10 @@ function renderRepeaterElement(
         element,
         payload,
       );
+  }
+
+  if (element.binding === "topScorersList") {
+    body = renderTopScorers(element, payload);
   }
 
   if (element.binding === "standingsTable") {

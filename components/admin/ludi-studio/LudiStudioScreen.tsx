@@ -14,14 +14,13 @@ import {
   CalendarRange,
   Image as ImageIcon,
   Lock,
-  Medal,
   Plus,
   Save,
-  Share2,
   Sparkles,
   TableProperties,
   Trash2,
   Trophy,
+  Target,
   Type,
   Unlock,
   Upload,
@@ -35,6 +34,7 @@ import {
 } from "@/src/services/standings/StandingsCalculator";
 import { useTeams } from "@/src/hooks/useTeams";
 import { usePlayers } from "@/src/hooks/usePlayers";
+import { useSeasonPlayers } from "@/src/hooks/useSeasonPlayers";
 import { useFirebaseIdToken } from "@/src/hooks/useFirebaseIdToken";
 import { useUploadThing } from "@/src/utils/uploadthing";
 
@@ -71,12 +71,11 @@ const TEMPLATE_ITEMS: Array<{
   icon: typeof CalendarDays;
 }> = [
   { type: "matchday", label: "Matchday", description: "Singola partita in programma oggi", icon: CalendarDays },
-  { type: "man_of_the_match", label: "Man Of The Match", description: "MVP della singola partita", icon: Medal },
   { type: "score_prediction", label: "Score Prediction", description: "Copertina del pronostico", icon: Sparkles },
   { type: "standings", label: "Classifica", description: "Classifica della competizione", icon: TableProperties },
   { type: "results", label: "Risultati", description: "Risultati della giornata", icon: Trophy },
   { type: "fixtures", label: "Programma", description: "Programma della giornata", icon: CalendarRange },
-  { type: "match_report", label: "Tabellino", description: "Grafica condivisa dagli utenti dal Match Report", icon: Share2 },
+  { type: "top_scorer", label: "Top Scorer", description: "Primi 5 marcatori della competizione", icon: Target },
 ];
 
 const DYNAMIC_FIELDS: Record<LudiStudioTemplateType, Array<{
@@ -140,6 +139,10 @@ const DYNAMIC_FIELDS: Record<LudiStudioTemplateType, Array<{
   fixtures: [
     { binding: "matchweek", label: "Matchweek", kind: "text" },
     { binding: "fixturesList", label: "Lista programma", kind: "repeater" },
+  ],
+  top_scorer: [
+    { binding: "topScorersList", label: "Top 5 marcatori · Logo / Cognome / Gol", kind: "repeater" },
+    { binding: "competitionName", label: "Competizione", kind: "text" },
   ],
   match_report: [
     { binding: "matchweek", label: "Matchweek", kind: "text" },
@@ -523,6 +526,8 @@ export default function LudiStudioScreen() {
     currentSeason?.competitionId,
   );
 
+  const { seasonPlayers } = useSeasonPlayers(currentSeason?.id);
+
   const { idToken } = useFirebaseIdToken();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -689,6 +694,71 @@ export default function LudiStudioScreen() {
     [reports],
   );
 
+  const playersById = useMemo(
+    () =>
+      new Map(
+        players.map(
+          (player) => [
+            String(player.id),
+            {
+              firstName:
+                player.firstName,
+              lastName:
+                player.lastName,
+              photoUrl:
+                player.photoUrl,
+            },
+          ],
+        ),
+      ),
+    [players],
+  );
+
+  // Marcatori stagionali della competizione corrente: solo gol ufficiali nei
+  // tabellini pubblicati (niente autoreti, niente doppio conteggio delle gare).
+  const topScorers = useMemo(() => {
+    const seasonPlayerById = new Map(
+      seasonPlayers.map((entry) => [String(entry.playerId), entry]),
+    );
+    const scoreByPlayerId = new Map<string, number>();
+    const teamByPlayerId = new Map<string, string>();
+    const publishedMatchById = new Map(
+      matches.map((match) => [String(match.id), match]),
+    );
+
+    for (const report of reports) {
+      if (report.status !== "published" || report.data.status === "walkover") continue;
+      const match = publishedMatchById.get(String(report.matchId));
+      if (!match || (match.matchType ?? "regularSeason") !== "regularSeason") continue;
+      for (const goal of report.data.goals ?? []) {
+        if (goal.type === "ownGoal") continue;
+        const playerId = String(goal.scorerPlayerId ?? "");
+        if (!playerId || !playersById.has(playerId)) continue;
+        const rosterEntry = seasonPlayerById.get(playerId);
+        if (!rosterEntry) continue;
+        const teamId = String(rosterEntry.teamId);
+        if (teamId !== String(match.homeTeamId) && teamId !== String(match.awayTeamId)) continue;
+        scoreByPlayerId.set(playerId, (scoreByPlayerId.get(playerId) ?? 0) + 1);
+        teamByPlayerId.set(playerId, teamId);
+      }
+    }
+
+    return [...scoreByPlayerId.entries()]
+      .map(([playerId, goals]) => {
+        const player = playersById.get(playerId);
+        const team = teamsById.get(teamByPlayerId.get(playerId) ?? "");
+        return {
+          playerId,
+          surname: (player?.lastName?.trim() || player?.firstName?.trim() || "GIOCATORE").toLocaleUpperCase("it-IT"),
+          goals,
+          teamLogoUrl: team?.logoUrl,
+          teamName: team?.aliasName || team?.name || "Squadra",
+        };
+      })
+      .sort((a, b) => b.goals - a.goals || a.surname.localeCompare(b.surname, "it") || a.playerId.localeCompare(b.playerId))
+      .slice(0, 5);
+  }, [matches, reports, seasonPlayers, playersById, teamsById]);
+
   const standingsAtSelectedMatchweek =
     useMemo(
       () => {
@@ -741,26 +811,6 @@ export default function LudiStudioScreen() {
         standings,
       ],
     );
-
-  const playersById = useMemo(
-    () =>
-      new Map(
-        players.map(
-          (player) => [
-            String(player.id),
-            {
-              firstName:
-                player.firstName,
-              lastName:
-                player.lastName,
-              photoUrl:
-                player.photoUrl,
-            },
-          ],
-        ),
-      ),
-    [players],
-  );
 
   const publishedReportMatches =
     useMemo(
@@ -870,6 +920,10 @@ export default function LudiStudioScreen() {
       seasonName,
       title: TEMPLATE_ITEMS.find((item) => item.type === templateType)?.label ?? "Ludi Studio",
     } satisfies Pick<LudiStudioSvgPayload, "templateType" | "competitionName" | "seasonName" | "title">;
+
+    if (templateType === "top_scorer") {
+      return { ...base, topScorers };
+    }
 
     if (templateType === "standings") {
       return {
@@ -1261,7 +1315,9 @@ export default function LudiStudioScreen() {
           isStandingRowBinding ||
           isStandingTeamBinding
             ? 88
-            : binding === "standingsTable"
+            : binding === "topScorersList"
+              ? 140
+              : binding === "standingsTable"
               ? 72
               : binding === "fixturesList"
                 ? 118
@@ -1283,7 +1339,9 @@ export default function LudiStudioScreen() {
           isStandingRowBinding ||
           isStandingTeamBinding
             ? 1
-            : binding === "standingsTable"
+            : binding === "topScorersList"
+              ? 5
+              : binding === "standingsTable"
               ? 12
               : 8,
         logoSize:
@@ -1291,7 +1349,9 @@ export default function LudiStudioScreen() {
             ? 58
             : isStandingTeamBinding
               ? 62
-              : binding === "standingsTable"
+              : binding === "topScorersList"
+                ? 96
+                : binding === "standingsTable"
                 ? 44
                 : binding === "fixturesList"
                   ? 64
@@ -1305,7 +1365,9 @@ export default function LudiStudioScreen() {
             ? 30
             : isStandingTeamBinding
               ? 32
-              : binding === "fixturesList"
+              : binding === "topScorersList"
+                ? 49
+                : binding === "fixturesList"
                 ? 30
                 : binding.endsWith("GoalsList") ||
                     binding.endsWith("SanctionsList")
@@ -1316,6 +1378,7 @@ export default function LudiStudioScreen() {
           isStandingRowBinding ||
           isStandingTeamBinding ||
           binding === "fixturesList" ||
+          binding === "topScorersList" ||
           binding === "resultsList" ||
           binding.endsWith("GoalsList") ||
           binding.endsWith("SanctionsList")
@@ -1325,6 +1388,7 @@ export default function LudiStudioScreen() {
           isStandingRowBinding ||
           isStandingTeamBinding ||
           binding === "fixturesList" ||
+          binding === "topScorersList" ||
           binding === "resultsList" ||
           binding.endsWith("GoalsList") ||
           binding.endsWith("SanctionsList")

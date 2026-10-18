@@ -9,6 +9,33 @@ import {
 import {
   Menu,
   X,
+  House,
+  Zap,
+  Swords,
+  CalendarDays,
+  Shield,
+  UsersRound,
+  UserRound,
+  Sparkles,
+  Trophy,
+  Users,
+  FileText,
+  Newspaper,
+  PanelsTopLeft,
+  ScanFace,
+  TvMinimalPlay,
+  Video,
+  Handshake,
+  Gamepad2,
+  Crown,
+  Target,
+  Medal,
+  CalendarRange,
+  CalendarCheck2,
+  BookOpen,
+  Workflow,
+  Settings,
+  type LucideIcon,
 } from "lucide-react";
 
 import {
@@ -18,7 +45,7 @@ import {
 type NavItem = {
   label: string;
   href: string;
-  icon: string;
+  icon: LucideIcon;
 };
 
 type NavGroup = {
@@ -31,64 +58,64 @@ const groups:
     {
       label: "Dashboard",
       items: [
-        { label: "Centro di controllo", href: "/admin", icon: "⌂" },
-        { label: "Operativo", href: "/admin/operativo", icon: "⚡" },
+        { label: "Centro di controllo", href: "/admin", icon: House },
+        { label: "Operativo", href: "/admin/operativo", icon: Zap },
       ],
     },
     {
       label: "Competizione",
       items: [
-        { label: "Partite", href: "/admin/partite", icon: "⚽" },
-        { label: "Calendario", href: "/admin/calendario", icon: "◫" },
-        { label: "Squadre", href: "/admin/squadre", icon: "◆" },
-        { label: "Rose", href: "/admin/rose", icon: "♟" },
-        { label: "Giocatori", href: "/admin/giocatori", icon: "●" },
-        { label: "Ludi Week", href: "/admin/ludi-week", icon: "✦" },
+        { label: "Partite", href: "/admin/partite", icon: Swords },
+        { label: "Calendario", href: "/admin/calendario", icon: CalendarDays },
+        { label: "Squadre", href: "/admin/squadre", icon: Shield },
+        { label: "Rose", href: "/admin/rose", icon: UsersRound },
+        { label: "Giocatori", href: "/admin/giocatori", icon: UserRound },
+        { label: "Ludi Week", href: "/admin/ludi-week", icon: Sparkles },
       ],
     },
     {
       label: "Fasi finali",
       items: [
-        { label: "Calendario", href: "/admin/fasi-finali/calendario", icon: "🏆" },
-        { label: "Rose fasi finali", href: "/admin/fasi-finali/rose", icon: "♜" },
+        { label: "Calendario", href: "/admin/fasi-finali/calendario", icon: Trophy },
+        { label: "Rose fasi finali", href: "/admin/fasi-finali/rose", icon: Users },
       ],
     },
     {
       label: "Contenuti",
       items: [
-        { label: "Comunicati", href: "/admin/comunicati", icon: "▤" },
-        { label: "News", href: "/admin/news", icon: "▦" },
-        { label: "Ludi Studio", href: "/admin/ludi-studio", icon: "▣" },
-        { label: "FUT Card Editor", href: "/admin/fut-card-editor", icon: "◈" },
-        { label: "Ludi TV", href: "/admin/ludi-tv", icon: "▶" },
-        { label: "Video", href: "/admin/video", icon: "▷" },
-        { label: "Sponsor", href: "/admin/sponsor", icon: "★" },
+        { label: "Comunicati", href: "/admin/comunicati", icon: FileText },
+        { label: "News", href: "/admin/news", icon: Newspaper },
+        { label: "Ludi Studio", href: "/admin/ludi-studio", icon: PanelsTopLeft },
+        { label: "FUT Card Editor", href: "/admin/fut-card-editor", icon: ScanFace },
+        { label: "Ludi TV", href: "/admin/ludi-tv", icon: TvMinimalPlay },
+        { label: "Video", href: "/admin/video", icon: Video },
+        { label: "Sponsor", href: "/admin/sponsor", icon: Handshake },
       ],
     },
     {
       label: "Games",
       items: [
-        { label: "Gestione Games", href: "/admin/games", icon: "🎮" },
+        { label: "Gestione Games", href: "/admin/games", icon: Gamepad2 },
       ],
     },
     {
       label: "Archivio",
       items: [
-        { label: "Hall of Fame", href: "/admin/hall-of-fame", icon: "♛" },
-        { label: "Albo d'oro", href: "/admin/albo-doro", icon: "🏅" },
-        { label: "All Times Goalscorers", href: "/admin/all-times-goalscorers", icon: "◎" },
-        { label: "Best of the Month", href: "/admin/best-of-the-month", icon: "✦" },
+        { label: "Hall of Fame", href: "/admin/hall-of-fame", icon: Crown },
+        { label: "Albo d'oro", href: "/admin/albo-doro", icon: Trophy },
+        { label: "All Times Goalscorers", href: "/admin/all-times-goalscorers", icon: Target },
+        { label: "Best of the Month", href: "/admin/best-of-the-month", icon: Medal },
       ],
     },
     {
       label: "Sistema",
       items: [
-        { label: "Stagioni", href: "/admin/stagioni", icon: "◉" },
-        { label: "Chiusura stagione", href: "/admin/stagioni/chiusura", icon: "✓" },
-        { label: "Regolamento", href: "/admin/regolamento", icon: "≡" },
-        { label: "Utenti", href: "/admin/utenti", icon: "♙" },
-        { label: "Elaborazioni", href: "/admin/elaborazioni", icon: "⚙" },
-        { label: "Impostazioni", href: "/admin/impostazioni", icon: "◌" },
+        { label: "Stagioni", href: "/admin/stagioni", icon: CalendarRange },
+        { label: "Chiusura stagione", href: "/admin/stagioni/chiusura", icon: CalendarCheck2 },
+        { label: "Regolamento", href: "/admin/regolamento", icon: BookOpen },
+        { label: "Utenti", href: "/admin/utenti", icon: Users },
+        { label: "Elaborazioni", href: "/admin/elaborazioni", icon: Workflow },
+        { label: "Impostazioni", href: "/admin/impostazioni", icon: Settings },
       ],
     },
   ];
@@ -304,12 +331,15 @@ function ControlNavigation({
                       )}
                     >
                       <span
-                        aria-hidden
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-current/10 text-base"
+                        aria-hidden="true"
+                        className={[
+                          "flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px]",
+                          active
+                            ? "bg-[#06142E]/10 text-[#06142E]"
+                            : "bg-[#14518A]/65 text-white",
+                        ].join(" ")}
                       >
-                        {
-                          item.icon
-                        }
+                        <item.icon size={17} strokeWidth={2.2} />
                       </span>
 
                       <span className="min-w-0 truncate">

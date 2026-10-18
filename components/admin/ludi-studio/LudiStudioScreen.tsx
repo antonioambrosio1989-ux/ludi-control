@@ -551,7 +551,7 @@ export default function LudiStudioScreen() {
   const [playerTeam, setPlayerTeam] = useState("");
   const [playerPhotoUrl, setPlayerPhotoUrl] = useState("");
   const [playerRating, setPlayerRating] = useState("");
-  const [uploadTarget, setUploadTarget] = useState<"background" | "static-image" | null>(null);
+  const [uploadTarget, setUploadTarget] = useState<"background" | "static-image" | "top-scorer-image-4-5" | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isTemplateDirty, setIsTemplateDirty] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -578,6 +578,8 @@ export default function LudiStudioScreen() {
         setMessage("Sfondo importato. Salva il template per conservarlo.");
       } else if (uploadTarget === "static-image") {
         addStaticImage(url);
+      } else if (uploadTarget === "top-scorer-image-4-5") {
+        addStaticImage(url, true);
       }
 
       setUploadTarget(null);
@@ -1212,20 +1214,20 @@ export default function LudiStudioScreen() {
     setSelectedElementId(id);
   }
 
-  function addStaticImage(imageUrl: string) {
+  function addStaticImage(imageUrl: string, asFourByFive = false) {
     if (!template) return;
     const id = newId("image");
     const maxZ = Math.max(0, ...template.elements.map((element) => element.zIndex));
 
     const element: LudiStudioElement = {
       id,
-      name: "Immagine statica",
+      name: asFourByFive ? "Immagine 4:5" : "Immagine statica",
       kind: "image",
       source: "static",
       imageUrl,
-      x: 290,
+      x: asFourByFive ? 340 : 290,
       y: 450,
-      width: 500,
+      width: asFourByFive ? 400 : 500,
       height: 500,
       opacity: 1,
       rotation: 0,
@@ -1574,7 +1576,7 @@ export default function LudiStudioScreen() {
     updateElement(id, { zIndex: current.zIndex + direction });
   }
 
-  function openUpload(target: "background" | "static-image") {
+  function openUpload(target: "background" | "static-image" | "top-scorer-image-4-5") {
     setUploadTarget(target);
     fileInputRef.current?.click();
   }
@@ -2191,6 +2193,9 @@ export default function LudiStudioScreen() {
                   <ToolButton icon={Upload} label={isUploading && uploadTarget === "background" ? "Upload..." : "Importa sfondo"} onClick={() => openUpload("background")} disabled={isUploading} />
                   <ToolButton icon={Type} label="Testo" onClick={addStaticText} />
                   <ToolButton icon={ImageIcon} label={isUploading && uploadTarget === "static-image" ? "Upload..." : "Immagine"} onClick={() => openUpload("static-image")} disabled={isUploading} />
+                  {templateType === "top_scorer" ? (
+                    <ToolButton icon={ImageIcon} label={isUploading && uploadTarget === "top-scorer-image-4-5" ? "Upload..." : "Immagine 4:5"} onClick={() => openUpload("top-scorer-image-4-5")} disabled={isUploading} />
+                  ) : null}
                 </div>
 
                 <label className="mt-3 block">

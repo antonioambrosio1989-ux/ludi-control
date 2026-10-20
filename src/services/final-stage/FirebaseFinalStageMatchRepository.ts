@@ -9,7 +9,6 @@ import {
   onSnapshot,
   orderBy,
   query,
-  runTransaction,
   serverTimestamp,
   updateDoc,
   where,
@@ -27,9 +26,7 @@ import {
   assertSeasonWritable,
 } from "@/src/services/season/SeasonWriteGuard";
 
-import {
-  getOppositePhaseMatchIds,
-} from "@/src/services/match/GlobalLiveMatchGate";
+import { transitionLiveMatch, type LiveTransitionInput } from "@/src/services/match/LiveMatchTransaction";
 
 import {
   assertFinalStageMatchFormat,
@@ -57,8 +54,6 @@ import type {
 const COLLECTION_NAME =
   "finalStageMatches";
 
-const REPORTS_COLLECTION_NAME =
-  "finalStageMatchReports";
 
 /*
  * ============================================================
@@ -66,7 +61,7 @@ const REPORTS_COLLECTION_NAME =
  * ============================================================
  */
 
-function mapFinalStageMatch(
+export function mapFinalStageMatch(
   documentId: string,
 
   data:
@@ -434,38 +429,6 @@ async function assertTeamsRegisteredInSeason(
  * ============================================================
  */
 
-function isPublishedFinalStageReportData(
-  value:
-    unknown,
-): boolean {
-  if (
-    !value ||
-    typeof value !==
-      "object"
-  ) {
-    return false;
-  }
-
-  const report =
-    value as {
-      status?: unknown;
-
-      data?: {
-        status?: unknown;
-      };
-    };
-
-  return (
-    report.status ===
-      "published" &&
-    (
-      report.data?.status ===
-        "played" ||
-      report.data?.status ===
-        "walkover"
-    )
-  );
-}
 
 /*
  * ============================================================
@@ -1816,303 +1779,15 @@ awayPenalties:
      * ========================================================
      */
 
-    async transitionLifecycle({
-      matchId,
-      expectedStatus,
-      status,
-      homeScore,
-      awayScore,
-    }: {
-      matchId:
-        string;
+    async transitionLifecycle(input: LiveTransitionInput): Promise<void> {
+    await transitionLiveMatch({ collectionName: "finalStageMatches", reportsCollectionName: "finalStageMatchReports", input });
+  },
 
-      expectedStatus:
-        | "scheduled"
-        | "live"
-        | "finished";
+  async updateLiveScore(input: Omit<LiveTransitionInput, "status" | "expectedStatus">): Promise<void> {
+    await FirebaseFinalStageMatchRepository.transitionLifecycle({ ...input, expectedStatus: "live", status: "live" });
+  },
 
-      status:
-        | "live"
-        | "finished";
-
-      homeScore:
-        number;
-
-      awayScore:
-        number;
-    }): Promise<void> {
-      const normalizedMatchId =
-        String(
-          matchId ??
-          "",
-        ).trim();
-
-      if (
-        !normalizedMatchId
-      ) {
-        throw new Error(
-          "La partita non è stata specificata.",
-        );
-      }
-
-      if (
-        !Number.isInteger(
-          homeScore,
-        ) ||
-        !Number.isInteger(
-          awayScore,
-        ) ||
-        homeScore <
-          0 ||
-        awayScore <
-          0
-      ) {
-        throw new Error(
-          "Il risultato deve contenere numeri interi maggiori o uguali a zero.",
-        );
-      }
-
-      /*
-       * Il preflight serve solo a recuperare la stagione e ad
-       * applicare il guard di scrittura.
-       *
-       * Stato e report vengono riletti dentro la transaction.
-       */
-      const existingMatch =
-        await this.getById(
-          normalizedMatchId,
-        );
-
-      if (
-        !existingMatch
-      ) {
-        throw new Error(
-          "La partita delle fasi finali selezionata non esiste.",
-        );
-      }
-
-      await assertSeasonWritable(
-        existingMatch.seasonId,
-      );
-
-      const [
-        seasonMatches,
-        regularSeasonMatchIds,
-      ] =
-        await Promise.all([
-          this.getBySeason(
-            existingMatch.seasonId,
-          ),
-
-          getOppositePhaseMatchIds({
-            seasonId:
-              existingMatch.seasonId,
-
-            phase:
-              "finalStage",
-          }),
-        ]);
-
-      const matchReference =
-        doc(
-          db,
-          COLLECTION_NAME,
-          normalizedMatchId,
-        );
-
-      const reportReference =
-        doc(
-          db,
-          REPORTS_COLLECTION_NAME,
-          normalizedMatchId,
-        );
-
-      const otherFinalStageMatchReferences =
-        seasonMatches
-          .filter(
-            (
-              currentMatch,
-            ) =>
-              String(
-                currentMatch.id,
-              ) !==
-              normalizedMatchId,
-          )
-          .map(
-            (
-              currentMatch,
-            ) =>
-              doc(
-                db,
-                COLLECTION_NAME,
-                String(
-                  currentMatch.id,
-                ),
-              ),
-          );
-
-      const regularSeasonMatchReferences =
-        regularSeasonMatchIds.map(
-          (
-            regularSeasonMatchId,
-          ) =>
-            doc(
-              db,
-              "matches",
-              regularSeasonMatchId,
-            ),
-        );
-
-      const otherMatchReferences = [
-        ...otherFinalStageMatchReferences,
-        ...regularSeasonMatchReferences,
-      ];
-
-      await runTransaction(
-        db,
-        async (
-          transaction,
-        ) => {
-          const [
-            matchSnapshot,
-            reportSnapshot,
-            ...otherMatchSnapshots
-          ] =
-            await Promise.all([
-              transaction.get(
-                matchReference,
-              ),
-
-              transaction.get(
-                reportReference,
-              ),
-
-              ...otherMatchReferences.map(
-                (
-                  reference,
-                ) =>
-                  transaction.get(
-                    reference,
-                  ),
-              ),
-            ]);
-
-          if (
-            !matchSnapshot.exists()
-          ) {
-            throw new Error(
-              "La partita delle fasi finali selezionata non esiste.",
-            );
-          }
-
-          const storedMatch =
-            mapFinalStageMatch(
-              matchSnapshot.id,
-              matchSnapshot.data(),
-            );
-
-          if (
-            storedMatch.seasonId !==
-            existingMatch.seasonId
-          ) {
-            throw new Error(
-              "La partita non appartiene più alla stagione prevista.",
-            );
-          }
-
-          if (
-            reportSnapshot.exists() &&
-            isPublishedFinalStageReportData(
-              reportSnapshot.data(),
-            )
-          ) {
-            throw new Error(
-              "Il lifecycle live non può essere modificato dopo la pubblicazione del tabellino finale.",
-            );
-          }
-
-          if (
-            storedMatch.status !==
-            expectedStatus
-          ) {
-            throw new Error(
-              `Stato partita non valido: atteso ${expectedStatus}, trovato ${storedMatch.status}.`,
-            );
-          }
-
-          /*
-           * Ogni passaggio verso LIVE deve garantire che non ci
-           * sia già un'altra gara Final Stage in corso.
-           */
-          if (
-            status ===
-            "live"
-          ) {
-            const conflictingLive =
-              otherMatchSnapshots.find(
-                (
-                  snapshot,
-                ) =>
-                  snapshot.exists() &&
-                  snapshot.data().status ===
-                    "live",
-              );
-
-            if (
-              conflictingLive
-            ) {
-              throw new Error(
-                "Un'altra partita della stagione è già live.",
-              );
-            }
-          }
-
-          transaction.update(
-            matchReference,
-            {
-              status,
-              homeScore,
-              awayScore,
-              updatedAt:
-                serverTimestamp(),
-            },
-          );
-        },
-      );
-    },
-
-    async updateLiveScore({
-      matchId,
-      homeScore,
-      awayScore,
-    }: {
-      matchId:
-        string;
-
-      homeScore:
-        number;
-
-      awayScore:
-        number;
-    }): Promise<void> {
-      await this.transitionLifecycle({
-        matchId,
-        expectedStatus:
-          "live",
-        status:
-          "live",
-        homeScore,
-        awayScore,
-      });
-    },
-
-    /*
-     * ========================================================
-     * DELETE
-     * ========================================================
-     */
-
-    async remove(
+  async remove(
       matchId:
         string,
     ): Promise<void> {

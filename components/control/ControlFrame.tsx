@@ -35,6 +35,8 @@ export default function ControlFrame({
     return children;
   }
 
+  const isLiveCenter = pathname === "/admin/live-center";
+
   return (
     <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-[#F4F6F8] text-[#06142E] lg:flex-row">
       <ControlSidebar />
@@ -48,9 +50,9 @@ export default function ControlFrame({
               </p>
 
               <p className="truncate text-sm font-black text-[#06142E]">
-                {selectedCompetition?.name ??
+                {isLiveCenter ? "Tutte le competizioni" : selectedCompetition?.name ??
                   "Ludis League"}
-                {currentSeason?.name
+                {!isLiveCenter && currentSeason?.name
                   ? ` · ${currentSeason.name}`
                   : ""}
               </p>

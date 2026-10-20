@@ -107,6 +107,7 @@ export default function AdminFinalStageLiveMatchScreen({
   useEffect(() => {
     let active =
       true;
+    let unsubscribe: (() => void) | undefined;
 
     async function loadMatch() {
       if (
@@ -178,8 +179,13 @@ export default function AdminFinalStageLiveMatchScreen({
           return;
         }
 
-        setMatch(
-          loadedMatch,
+        setMatch(loadedMatch);
+        unsubscribe = FirebaseFinalStageMatchRepository.subscribeBySeason(
+          loadedMatch.seasonId,
+          (matches) => {
+            if (active) setMatch(matches.find((item) => String(item.id) === String(matchId)) ?? null);
+          },
+          (error) => { if (active) setError(error.message); },
         );
       } catch (
         currentError
@@ -212,6 +218,7 @@ export default function AdminFinalStageLiveMatchScreen({
     return () => {
       active =
         false;
+      unsubscribe?.();
     };
   }, [
     authLoading,
@@ -348,18 +355,9 @@ export default function AdminFinalStageLiveMatchScreen({
       null,
     );
 
-    setMatch({
-      ...match,
-
-      homeScore:
-        nextHome,
-
-      awayScore:
-        nextAway,
-    });
-
     try {
       await FirebaseFinalStageMatchLifecycleService.updateLiveScore({
+        expectedScores: { homeScore: match.homeScore, awayScore: match.awayScore },
         matchId:
           match.id,
 
@@ -372,9 +370,7 @@ export default function AdminFinalStageLiveMatchScreen({
     } catch (
       currentError
     ) {
-      setMatch(
-        match,
-      );
+      
 
       setError(
         currentError instanceof
@@ -422,15 +418,13 @@ export default function AdminFinalStageLiveMatchScreen({
     );
 
     try {
-      const updated =
-        await FirebaseFinalStageMatchLifecycleService.finishMatch({
+      await FirebaseFinalStageMatchLifecycleService.finishMatch({
+        expectedScores: { homeScore: match.homeScore, awayScore: match.awayScore },
           matchId:
             match.id,
         });
 
-      setMatch(
-        updated,
-      );
+      
 
       setMessage(
         "Partita terminata. Il risultato è definitivo e il tabellino è in elaborazione.",
@@ -473,15 +467,13 @@ export default function AdminFinalStageLiveMatchScreen({
     );
 
     try {
-      const updated =
-        await FirebaseFinalStageMatchLifecycleService.restoreLive({
+      await FirebaseFinalStageMatchLifecycleService.restoreLive({
+        expectedScores: { homeScore: match.homeScore, awayScore: match.awayScore },
           matchId:
             match.id,
         });
 
-      setMatch(
-        updated,
-      );
+      
 
       setMessage(
         "Partita ripristinata in LIVE. Il punteggio è nuovamente modificabile.",
@@ -547,7 +539,6 @@ export default function AdminFinalStageLiveMatchScreen({
 
   if (
     teamsError ||
-    error ||
     !match
   ) {
     return (

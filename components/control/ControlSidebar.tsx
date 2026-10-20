@@ -59,6 +59,7 @@ const groups:
       label: "Dashboard",
       items: [
         { label: "Centro di controllo", href: "/admin", icon: House },
+        { label: "Live Center", href: "/admin/live-center", icon: TvMinimalPlay },
         { label: "Operativo", href: "/admin/operativo", icon: Zap },
       ],
     },

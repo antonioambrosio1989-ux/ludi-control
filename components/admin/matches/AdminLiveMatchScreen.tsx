@@ -96,6 +96,7 @@ export default function AdminLiveMatchScreen({
   useEffect(() => {
     let active =
       true;
+    let unsubscribe: (() => void) | undefined;
 
     async function loadMatch() {
       if (
@@ -171,8 +172,13 @@ export default function AdminLiveMatchScreen({
           return;
         }
 
-        setMatch(
-          loadedMatch,
+        setMatch(loadedMatch);
+        unsubscribe = FirebaseMatchRepository.subscribeBySeason(
+          loadedMatch.seasonId,
+          (matches) => {
+            if (active) setMatch(matches.find((item) => String(item.id) === String(matchId)) ?? null);
+          },
+          (error) => { if (active) setError(error.message); },
         );
       } catch (
         currentError
@@ -205,6 +211,7 @@ export default function AdminLiveMatchScreen({
     return () => {
       active =
         false;
+      unsubscribe?.();
     };
   }, [
     authLoading,
@@ -343,22 +350,9 @@ export default function AdminLiveMatchScreen({
       null,
     );
 
-    /*
-     * Aggiornamento ottimistico:
-     * il nuovo punteggio appare subito nel gestionale.
-     */
-    setMatch(
-      {
-        ...match,
-        homeScore:
-          nextHome,
-        awayScore:
-          nextAway,
-      },
-    );
-
     try {
       await FirebaseMatchLifecycleService.updateLiveScore({
+        expectedScores: { homeScore: match.homeScore, awayScore: match.awayScore },
         matchId:
           match.id,
         homeScore:
@@ -369,13 +363,6 @@ export default function AdminLiveMatchScreen({
     } catch (
       currentError
     ) {
-      /*
-       * Se Firestore rifiuta l'update, ripristiniamo
-       * il risultato precedente.
-       */
-      setMatch(
-        match,
-      );
 
       setError(
         currentError instanceof
@@ -424,17 +411,12 @@ export default function AdminLiveMatchScreen({
 
     try {
       await FirebaseMatchLifecycleService.finishMatch({
+        expectedScores: { homeScore: match.homeScore, awayScore: match.awayScore },
         matchId:
           match.id,
       });
 
-      setMatch(
-        {
-          ...match,
-          status:
-            "finished",
-        },
-      );
+      
 
       setMessage(
         "Partita terminata. Il risultato è ora definitivo e il tabellino è in elaborazione.",
@@ -478,17 +460,12 @@ export default function AdminLiveMatchScreen({
 
     try {
       await FirebaseMatchLifecycleService.restoreLive({
+        expectedScores: { homeScore: match.homeScore, awayScore: match.awayScore },
         matchId:
           match.id,
       });
 
-      setMatch(
-        {
-          ...match,
-          status:
-            "live",
-        },
-      );
+      
 
       setMessage(
         "Partita ripristinata in LIVE. Il punteggio è nuovamente modificabile.",
@@ -558,7 +535,6 @@ export default function AdminLiveMatchScreen({
 
   if (
     teamsError ||
-    error ||
     !match
   ) {
     return (

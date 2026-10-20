@@ -1,3 +1,4 @@
+import type { ExpectedLiveScores } from "@/src/services/match/LiveMatchTransaction";
 import {
   FirebaseFinalStageMatchRepository,
 } from "@/src/services/final-stage/FirebaseFinalStageMatchRepository";
@@ -128,10 +129,12 @@ export const FirebaseFinalStageMatchLifecycleService =
     },
 
     async updateLiveScore({
+      expectedScores,
       matchId,
       homeScore,
       awayScore,
     }: {
+      expectedScores?: ExpectedLiveScores;
       matchId:
         string;
 
@@ -142,6 +145,7 @@ export const FirebaseFinalStageMatchLifecycleService =
         number;
     }): Promise<void> {
       await FirebaseFinalStageMatchRepository.updateLiveScore({
+      expectedScores,
         matchId,
         homeScore,
         awayScore,
@@ -149,8 +153,10 @@ export const FirebaseFinalStageMatchLifecycleService =
     },
 
     async finishMatch({
+      expectedScores,
       matchId,
     }: {
+      expectedScores?: ExpectedLiveScores;
       matchId:
         string;
     }): Promise<FinalStageMatch> {
@@ -177,6 +183,7 @@ export const FirebaseFinalStageMatchLifecycleService =
       }
 
       await FirebaseFinalStageMatchRepository.transitionLifecycle({
+      expectedScores: expectedScores ?? { homeScore: match.homeScore, awayScore: match.awayScore },
         matchId:
           match.id,
 
@@ -212,8 +219,10 @@ export const FirebaseFinalStageMatchLifecycleService =
     },
 
     async restoreLive({
+      expectedScores,
       matchId,
     }: {
+      expectedScores?: ExpectedLiveScores;
       matchId:
         string;
     }): Promise<FinalStageMatch> {
@@ -240,6 +249,7 @@ export const FirebaseFinalStageMatchLifecycleService =
       }
 
       await FirebaseFinalStageMatchRepository.transitionLifecycle({
+      expectedScores: expectedScores ?? { homeScore: match.homeScore, awayScore: match.awayScore },
         matchId:
           match.id,
 

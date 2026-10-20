@@ -1,3 +1,4 @@
+import type { ExpectedLiveScores } from "@/src/services/match/LiveMatchTransaction";
 import {
   FirebaseMatchRepository,
 } from "@/src/services/match/FirebaseMatchRepository";
@@ -37,7 +38,7 @@ export type AutomaticLiveSyncResult =
  * Responsabilità:
  *
  * 1. avvio automatico a orario calendario + 15 minuti;
- * 2. una sola partita LIVE per il matchday;
+ * 2. sincronizzazione legacy del matchday; il Live Center avvia tutte le gare dovute;
  * 3. aggiornamento punteggio esclusivamente mentre è LIVE;
  * 4. fine partita manuale LIVE -> FINISHED;
  * 5. ripristino manuale FINISHED -> LIVE.
@@ -160,10 +161,12 @@ export const FirebaseMatchLifecycleService = {
   },
 
   async updateLiveScore({
+      expectedScores,
     matchId,
     homeScore,
     awayScore,
   }: {
+      expectedScores?: ExpectedLiveScores;
     matchId: string;
     homeScore: number;
     awayScore: number;
@@ -174,6 +177,7 @@ export const FirebaseMatchLifecycleService = {
     );
 
     await FirebaseMatchRepository.updateLiveScore({
+      expectedScores,
       matchId,
       homeScore,
       awayScore,
@@ -181,8 +185,10 @@ export const FirebaseMatchLifecycleService = {
   },
 
   async finishMatch({
+      expectedScores,
     matchId,
   }: {
+      expectedScores?: ExpectedLiveScores;
     matchId: string;
   }): Promise<void> {
     const match =
@@ -200,6 +206,7 @@ export const FirebaseMatchLifecycleService = {
     }
 
     await FirebaseMatchRepository.transitionLifecycle({
+      expectedScores: expectedScores ?? { homeScore: match.homeScore, awayScore: match.awayScore },
       matchId:
         String(
           match.id,
@@ -218,8 +225,10 @@ export const FirebaseMatchLifecycleService = {
   },
 
   async restoreLive({
+      expectedScores,
     matchId,
   }: {
+      expectedScores?: ExpectedLiveScores;
     matchId: string;
   }): Promise<void> {
     const match =
@@ -237,6 +246,7 @@ export const FirebaseMatchLifecycleService = {
     }
 
     await FirebaseMatchRepository.transitionLifecycle({
+      expectedScores: expectedScores ?? { homeScore: match.homeScore, awayScore: match.awayScore },
       matchId:
         String(
           match.id,

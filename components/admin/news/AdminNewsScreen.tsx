@@ -67,7 +67,12 @@ function NewsEditor({ seasonId }: { seasonId: string }) {
     void FirebasePlayerRepository.getById(mvpPlayerId).then((player) => { if (active) setMvpImage({ playerId: mvpPlayerId, url: player?.photoUrl || "" }); }).catch(() => { if (active) setMvpImage({ playerId: mvpPlayerId, url: "" }); });
     return () => { active = false; };
   }, [mvpPlayerId]);
-  const playedMatches = allMatches.filter((match) => match.seasonId === seasonId && teams.some((team) => team.id === String(match.homeTeamId)) && teams.some((team) => team.id === String(match.awayTeamId)) && getPlayedMatchResult(match, match.report));
+  const playedMatches = allMatches
+    .filter((match) => match.seasonId === seasonId && teams.some((team) => team.id === String(match.homeTeamId)) && teams.some((team) => team.id === String(match.awayTeamId)) && getPlayedMatchResult(match, match.report))
+    .sort((a, b) => {
+      const dateOrder = b.date.localeCompare(a.date);
+      return dateOrder !== 0 ? dateOrder : b.time.localeCompare(a.time);
+    });
   const seasonTeamIds = new Set(entries.map((entry) => entry.teamId));
   const participatingTeams = teams.filter((team) => seasonTeamIds.has(team.id));
   const selectedTeam = participatingTeams.find((team) => team.id === teamId);

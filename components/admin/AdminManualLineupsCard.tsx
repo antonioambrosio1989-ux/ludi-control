@@ -27,8 +27,20 @@ function sideData(value: unknown): Record<string, unknown> {
     ? value as Record<string, unknown> : {};
 }
 
+function todayInRome(): string {
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+}
+
 export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string }) {
   const [matches, setMatches] = useState<MatchItem[]>([]);
+  const [today, setToday] = useState(todayInRome);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setToday(todayInRome()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
   const [matchId, setMatchId] = useState("");
   const [side, setSide] = useState<Side>("home");
   const [lineup, setLineup] = useState<LineupData | null>(null);
@@ -99,7 +111,8 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
     }, () => setError("Impossibile leggere la formazione."));
   }, [matchId]);
 
-  const match = matches.find((entry) => entry.id === matchId);
+  const todaysMatches = matches.filter((entry) => entry.date === today);
+  const match = todaysMatches.find((entry) => entry.id === matchId);
   const teamId = match ? (side === "home" ? match.homeTeamId : match.awayTeamId) : "";
   const roster = rosters[teamId] ?? [];
   const currentSide = sideData(lineup?.[side]);
@@ -204,15 +217,19 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
     <section className="rounded-[18px] border border-[#06142E]/10 bg-white p-5">
       <h2 className="text-lg font-black uppercase text-[#06142E]">Gestione manuale formazioni</h2>
       <p className="mt-1 text-xs font-semibold text-[#06142E]/55">Seleziona una partita, poi aggiungi o rimuovi giocatori dalla rosa della squadra.</p>
+      <p className="mt-2 text-xs font-semibold text-[#06142E]/55">Solo partite di oggi ({today.split("-").reverse().join("/")}, ora italiana).</p>
       <label className="mt-4 block text-xs font-bold">Partita
         <select value={matchId} onChange={(event) => { setMatchId(event.target.value); setDirty(false); setGoalkeeperWizard(false); setGuestGoalkeeper(""); setEditingGuestId(""); setSuccess(""); }}
           className="mt-1 w-full rounded-lg border p-2 text-sm">
           <option value="">Seleziona partita</option>
-          {matches.map((item) => <option key={item.id} value={item.id}>
+          {todaysMatches.map((item) => <option key={item.id} value={item.id}>
             {item.date} {item.time} · {teams[item.homeTeamId] ?? item.homeTeamId} vs {teams[item.awayTeamId] ?? item.awayTeamId}
           </option>)}
         </select>
       </label>
+      {todaysMatches.length === 0 && (
+        <p className="mt-3 text-sm font-semibold text-[#06142E]/60">Nessuna partita in programma oggi per questa competizione.</p>
+      )}
       {match && <>
         <label className="mt-3 block text-xs font-bold">Squadra
           <select value={side} onChange={(event) => { setSide(event.target.value as Side); setDirty(false); setGoalkeeperWizard(false); setGuestGoalkeeper(""); setEditingGuestId(""); setSuccess(""); }}

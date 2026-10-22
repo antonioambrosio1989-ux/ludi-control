@@ -16,7 +16,7 @@ export type LiveTransitionInput = {
   expectedSeasonId?: string;
 };
 
-/** One transaction per match. Other matches never participate in the write. */
+/** Atomic, shared LIVE lock across both match collections and all competitions. */
 export async function transitionLiveMatch({
   collectionName,
   reportsCollectionName,
@@ -52,11 +52,13 @@ export async function transitionLiveMatch({
     homeScore: before.homeScore,
     awayScore: before.awayScore,
   };
+  const lockRef = doc(db, "liveCenterState", "global");
   await runTransaction(db, async (transaction) => {
-    const [match, report, season] = await Promise.all([
+    const [match, report, season, lock] = await Promise.all([
       transaction.get(matchRef),
       transaction.get(doc(db, reportsCollectionName, id)),
       transaction.get(doc(db, "seasons", seasonId)),
+      transaction.get(lockRef),
     ]);
     if (!match.exists()) throw new Error("La partita selezionata non esiste.");
     const stored = match.data();
@@ -77,6 +79,24 @@ export async function transitionLiveMatch({
     }
     if (stored.homeScore !== expected.homeScore || stored.awayScore !== expected.awayScore) {
       throw new Error("Risultato modificato da un altro operatore. Attendi l'aggiornamento e riprova.");
+    }
+    const owner = lock.exists() && lock.data().active === true ? lock.data() : undefined;
+    const owned = owner?.collectionName === collectionName && owner?.matchId === id;
+    const entering = input.status === "live" && input.expectedStatus !== "live";
+    const leaving = input.status === "finished" && input.expectedStatus === "live";
+    if (entering) {
+      if (owner && !owned) throw new Error("Un'altra partita è già LIVE. Termina prima quella in corso.");
+      transaction.set(lockRef, {
+        active: true, collectionName, matchId: id, seasonId,
+        updatedAt: serverTimestamp(),
+      });
+    } else if (leaving) {
+      // Legacy live entries predating the lock can finish, without clearing another owner's lock.
+      if (owner && !owned) throw new Error("Blocco LIVE incoerente: termina prima la partita attiva.");
+      transaction.set(lockRef, {
+        active: false, collectionName: null, matchId: null, seasonId: null,
+        updatedAt: serverTimestamp(),
+      });
     }
     transaction.update(matchRef, {
       status: input.status,

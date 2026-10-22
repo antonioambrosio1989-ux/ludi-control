@@ -133,16 +133,19 @@ function LiveCenter() {
     }
   }
 
-  // This callback always uses the latest snapshots and does not restart the timer on each goal.
+  // Only one candidate globally, even when multiple fixtures are overdue.
   const startDueMatches = useEffectEvent(() => {
+    if (loading || sourceFailed || entries.some((entry) => entry.match.status === "live")) return;
     const now = new Date();
-    for (const entry of entries) {
-      const key = liveCenterKey(entry);
-      if (!writable(entry) || !isAutomaticLiveDue(entry.match, now) ||
-        (nextAutomaticAttempt.current.get(key) ?? 0) > now.getTime()) continue;
-      nextAutomaticAttempt.current.set(key, now.getTime() + 60_000);
-      void run(entry, "start", true);
-    }
+    const candidate = entries
+      .filter((entry) => writable(entry) && isAutomaticLiveDue(entry.match, now))
+      .sort((a, b) => a.match.date.localeCompare(b.match.date) ||
+        a.match.time.localeCompare(b.match.time) || liveCenterKey(a).localeCompare(liveCenterKey(b)))[0];
+    if (!candidate) return;
+    const key = liveCenterKey(candidate);
+    if ((nextAutomaticAttempt.current.get(key) ?? 0) > now.getTime()) return;
+    nextAutomaticAttempt.current.set(key, now.getTime() + 60_000);
+    void run(candidate, "start", true);
   });
   useEffect(() => {
     const timer = window.setInterval(() => startDueMatches(), 15_000);
@@ -171,7 +174,7 @@ function LiveCenter() {
       <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Ludi Control</p>
       <h1 className="mt-1 text-3xl font-black text-[#06142E]">Live Center</h1>
       <p className="mt-2 text-sm text-slate-600">Tutte le competizioni, Regular Season e fasi finali, in una sola schermata.</p>
-      <p className="mt-1 text-xs text-slate-500">Avvio automatico all’orario di calendario + 15 minuti, mentre il Live Center è aperto. Orari italiani.</p>
+      <p className="mt-1 text-xs text-slate-500">Avvio a calendario + 15 minuti, soltanto dopo la conclusione della precedente partita LIVE. Un LIVE per volta, per tutte le competizioni.</p>
     </header>
     {!online ? <p role="status" className="rounded-xl bg-amber-50 p-4 text-amber-900">Connessione assente. Le modifiche sono sospese.</p> : null}
     {[seasonsError, teamsError, competitionsError, ...Object.values(sourceErrors)].filter(Boolean).map((error, index) =>

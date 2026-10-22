@@ -15,6 +15,7 @@ import {
 import { useStandings } from "@/src/hooks/useStandings";
 import { useTeams } from "@/src/hooks/useTeams";
 import LineupRosterSuggestionsCard from "./LineupRosterSuggestionsCard";
+import AdminManualLineupsCard from "./AdminManualLineupsCard";
 import AdminGamesNotificationsCard from "./AdminGamesNotificationsCard";
 import AppShell from "../ui/AppShell";
 import { OrganizerEngine } from "@/src/services/organizer/OrganizerEngine";
@@ -677,6 +678,8 @@ const isLoading =
           </div>
 
           <aside className="min-w-0 space-y-5">
+            <AdminManualLineupsCard seasonId={currentSeasonId} />
+
             <LineupRosterSuggestionsCard
               seasonId={
                 currentSeasonId

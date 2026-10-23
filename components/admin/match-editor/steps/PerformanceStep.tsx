@@ -931,10 +931,19 @@ function buildPerformancePlayers({
       },
     );
 
-  return [
-    ...rosterPlayers,
-    ...temporaryGoalkeepers,
-  ];
+  // Stesso ordine dello step Formazioni: Portieri, Difensori, Attaccanti.
+  // La sort stabile mantiene l'ordine originario della rosa all'interno
+  // di ogni ruolo e include i portieri provvisori nel primo gruppo.
+  const roleOrder: Record<SeasonPlayer["role"], number> = {
+    Portiere: 0,
+    Difensore: 1,
+    Attaccante: 2,
+  };
+
+  return [...rosterPlayers, ...temporaryGoalkeepers].sort(
+    (first, second) =>
+      (roleOrder[first.role] ?? 3) - (roleOrder[second.role] ?? 3),
+  );
 }
 
 function countCompleted(

@@ -303,6 +303,8 @@ const currentSeasonId =
       "",
     );
 
+  const [newNationality, setNewNationality] = useState("IT");
+
   const [
     newPreferredFoot,
     setNewPreferredFoot,
@@ -698,6 +700,8 @@ const currentSeasonId =
       "",
     );
 
+    setNewNationality("IT");
+
     setNewPreferredFoot(
       "",
     );
@@ -804,6 +808,8 @@ const currentSeasonId =
         player.baseRating?.toString() ??
           "",
       );
+
+      setNewNationality(player.nationality || "IT");
 
       setNewPreferredFoot(
         player.preferredFoot ??
@@ -1029,6 +1035,8 @@ const competitionId =
 
             baseRating:
               normalizedBaseRating,
+
+            nationality: newNationality,
 
             preferredFoot:
               newPreferredFoot ||
@@ -1277,6 +1285,8 @@ const competitionId =
         baseRating:
           normalizedBaseRating,
 
+        nationality: newNationality,
+
         preferredFoot:
           newPreferredFoot ||
           undefined,
@@ -1465,6 +1475,9 @@ const competitionId =
 
     newPreferredFoot,
     setNewPreferredFoot,
+
+    newNationality,
+    setNewNationality,
 
     isSaving,
 

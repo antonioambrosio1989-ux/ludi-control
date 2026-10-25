@@ -12,6 +12,8 @@ export type PlayerRole =
   | "Difensore"
   | "Attaccante";
 
+export type PlayerNationality = string; // ISO 3166-1 alpha-2, es. IT, FR, BR
+
 export type PreferredFoot =
   | "Destro"
   | "Sinistro"
@@ -68,6 +70,7 @@ export type PlayerProfile = {
   historicalImportSources?: HistoricalImportSource[];
   achievements?: PlayerAchievement[];
   preferredFoot?: PreferredFoot;
+  nationality?: PlayerNationality;
 
   /*
    * Rating iniziale del giocatore.
@@ -99,6 +102,7 @@ export type CreatePlayerInput = {
   historicalImportSources?: HistoricalImportSource[];
 
   preferredFoot?: PreferredFoot;
+  nationality?: PlayerNationality;
 
   /*
    * Facoltativo.
@@ -121,6 +125,7 @@ export type UpdatePlayerInput = {
   historicalImportSources?: HistoricalImportSource[];
 
   preferredFoot?: PreferredFoot;
+  nationality?: PlayerNationality;
 
   /*
    * Consente di inserire o modificare

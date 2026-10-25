@@ -99,6 +99,8 @@ export default function AdminPlayersScreen() {
 
     baseRating,
     setBaseRating,
+    nationality,
+    setNationality,
 
     role,
     setRole,
@@ -435,6 +437,9 @@ export default function AdminPlayersScreen() {
         setCoverImageUrl={
           setCoverImageUrl
         }
+
+        nationality={nationality}
+        setNationality={setNationality}
 
         baseRating={
           baseRating

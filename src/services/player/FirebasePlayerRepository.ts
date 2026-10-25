@@ -632,6 +632,8 @@ export const FirebasePlayerRepository =
             input.historicalImportSources ??
             [],
 
+          nationality: input.nationality || "IT",
+
           preferredFoot:
             input.preferredFoot ??
             null,
@@ -752,6 +754,10 @@ export const FirebasePlayerRepository =
           normalizeOptionalText(
             input.coverImageUrl,
           );
+      }
+
+      if (input.nationality !== undefined) {
+        updateData.nationality = input.nationality;
       }
 
       if (
@@ -1018,6 +1024,10 @@ export const FirebasePlayerRepository =
   ) {
     updateData.coverImageUrl =
       sourcePlayer.coverImageUrl;
+  }
+
+  if ((!targetPlayer.nationality || targetPlayer.nationality === "IT") && sourcePlayer.nationality && sourcePlayer.nationality !== "IT") {
+    updateData.nationality = sourcePlayer.nationality;
   }
 
   if (

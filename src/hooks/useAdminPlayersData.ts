@@ -215,6 +215,8 @@ const error =
       "",
     );
 
+  const [nationality, setNationality] = useState("IT");
+
   const [
     baseRating,
     setBaseRating,
@@ -515,6 +517,8 @@ const error =
       "",
     );
 
+    setNationality("IT");
+
     setBaseRating(
       "",
     );
@@ -667,6 +671,8 @@ const error =
       player.coverImageUrl ??
       "",
     );
+
+    setNationality(player.nationality || "IT");
 
     setBaseRating(
       player.baseRating
@@ -999,6 +1005,8 @@ const error =
             coverImageUrl.trim() ||
             undefined,
 
+          nationality,
+
           baseRating:
             normalizedBaseRating ??
             undefined,
@@ -1022,6 +1030,8 @@ const error =
 
           coverImageUrl:
             coverImageUrl.trim(),
+
+          nationality,
 
           baseRating:
             normalizedBaseRating,
@@ -1489,6 +1499,9 @@ const error =
 
     baseRating,
     setBaseRating,
+
+    nationality,
+    setNationality,
 
     role,
     setRole,

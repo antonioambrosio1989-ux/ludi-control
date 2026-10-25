@@ -84,6 +84,8 @@ export function mapPlayer(
         data.historicalImportSources,
       ),
 
+    nationality: getOptionalString(data.nationality)?.toUpperCase() ?? "IT",
+
     preferredFoot:
       getPreferredFoot(
         data.preferredFoot,

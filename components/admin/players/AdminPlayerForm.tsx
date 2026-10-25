@@ -61,6 +61,9 @@ type Props = {
       string,
   ) => void;
 
+  nationality: string;
+  setNationality: (value: string) => void;
+
   baseRating:
     string;
 
@@ -128,6 +131,9 @@ export default function AdminPlayerForm({
 
   coverImageUrl,
   setCoverImageUrl,
+
+  nationality,
+  setNationality,
 
   baseRating,
   setBaseRating,
@@ -240,6 +246,13 @@ export default function AdminPlayerForm({
             }
           />
         </div>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-black uppercase text-[#06142E]/50">Nazionalità</span>
+          <select className="ludi-input" value={nationality} onChange={(event) => setNationality(event.target.value)}>
+            {NATIONALITY_OPTIONS.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+          </select>
+        </label>
 
         <PlayerPhotoUploader
           value={
@@ -553,3 +566,6 @@ function NumberField({
     </label>
   );
 }
+const NATIONALITY_OPTIONS: Array<[string,string]> = [
+  ["IT","Italia"], ["AR","Argentina"], ["BR","Brasile"], ["FR","Francia"], ["DE","Germania"], ["GB","Regno Unito"], ["ES","Spagna"], ["PT","Portogallo"], ["NL","Paesi Bassi"], ["BE","Belgio"], ["CH","Svizzera"], ["US","Stati Uniti"], ["CO","Colombia"], ["UY","Uruguay"], ["RO","Romania"], ["AL","Albania"], ["MA","Marocco"], ["TN","Tunisia"], ["NG","Nigeria"], ["SN","Senegal"], ["HR","Croazia"], ["RS","Serbia"], ["PL","Polonia"], ["UA","Ucraina"], ["JP","Giappone"], ["KR","Corea del Sud"], ["CN","Cina"], ["AU","Australia"], ["CA","Canada"], ["MX","Messico"], ["TR","Turchia"], ["EG","Egitto"], ["DZ","Algeria"], ["GH","Ghana"], ["CI","Costa d’Avorio"], ["CM","Camerun"], ["GR","Grecia"], ["SE","Svezia"], ["NO","Norvegia"], ["DK","Danimarca"], ["IE","Irlanda"], ["AT","Austria"], ["CZ","Repubblica Ceca"], ["SK","Slovacchia"], ["HU","Ungheria"], ["BA","Bosnia ed Erzegovina"], ["SI","Slovenia"], ["XK","Kosovo"], ["PE","Perù"], ["CL","Cile"], ["VE","Venezuela"], ["EC","Ecuador"], ["PY","Paraguay"], ["BO","Bolivia"], ["IL","Israele"], ["SA","Arabia Saudita"], ["IN","India"], ["PK","Pakistan"], ["PH","Filippine"], ["TH","Thailandia"], ["ZA","Sudafrica"],
+];

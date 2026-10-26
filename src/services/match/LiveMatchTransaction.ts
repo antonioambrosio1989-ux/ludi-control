@@ -16,7 +16,7 @@ export type LiveTransitionInput = {
   expectedSeasonId?: string;
 };
 
-/** Atomic, shared LIVE lock across both match collections and all competitions. */
+/** Lock atomico per competizione, condiviso fra Regular Season e Final Stage. */
 export async function transitionLiveMatch({
   collectionName,
   reportsCollectionName,
@@ -52,12 +52,22 @@ export async function transitionLiveMatch({
     homeScore: before.homeScore,
     awayScore: before.awayScore,
   };
-  const lockRef = doc(db, "liveCenterState", "global");
+  // L'identità della competizione deriva dalla stagione, mai da un valore del client.
+  // Serve prima della transazione per costruire la reference del lock.
+  const seasonRef = doc(db, "seasons", seasonId);
+  const seasonPreflight = await getDoc(seasonRef);
+  if (!seasonPreflight.exists()) throw new Error("La stagione della partita non esiste.");
+  const preflightCompetitionId = seasonPreflight.data().competitionId;
+  if (typeof preflightCompetitionId !== "string" || !preflightCompetitionId.trim()) {
+    throw new Error("La competizione della stagione non è valida.");
+  }
+  // encodeURIComponent impedisce slash nei document IDs Firestore.
+  const lockRef = doc(db, "liveCenterState", `competition-${encodeURIComponent(preflightCompetitionId)}`);
   await runTransaction(db, async (transaction) => {
     const [match, report, season, lock] = await Promise.all([
       transaction.get(matchRef),
       transaction.get(doc(db, reportsCollectionName, id)),
-      transaction.get(doc(db, "seasons", seasonId)),
+      transaction.get(seasonRef),
       transaction.get(lockRef),
     ]);
     if (!match.exists()) throw new Error("La partita selezionata non esiste.");
@@ -65,6 +75,9 @@ export async function transitionLiveMatch({
     if (stored.seasonId !== seasonId) throw new Error("La stagione della partita è cambiata. Ricarica i dati.");
     if (!season.exists() || season.data().status !== "active") {
       throw new Error("Il live è modificabile soltanto in una stagione attiva.");
+    }
+    if (season.data().competitionId !== preflightCompetitionId) {
+      throw new Error("La competizione della stagione è cambiata. Riprova.");
     }
     const closedField = collectionName === "matches" ? "regularSeasonClosed" : "finalStageClosed";
     if (season.data()[closedField] === true) throw new Error("Questa fase della stagione è già chiusa.");
@@ -85,16 +98,16 @@ export async function transitionLiveMatch({
     const entering = input.status === "live" && input.expectedStatus !== "live";
     const leaving = input.status === "finished" && input.expectedStatus === "live";
     if (entering) {
-      if (owner && !owned) throw new Error("Un'altra partita è già LIVE. Termina prima quella in corso.");
+      if (owner && !owned) throw new Error("Un'altra partita della stessa competizione è già LIVE. Termina prima quella in corso.");
       transaction.set(lockRef, {
-        active: true, collectionName, matchId: id, seasonId,
+        active: true, collectionName, matchId: id, seasonId, competitionId: preflightCompetitionId,
         updatedAt: serverTimestamp(),
       });
     } else if (leaving) {
       // Legacy live entries predating the lock can finish, without clearing another owner's lock.
       if (owner && !owned) throw new Error("Blocco LIVE incoerente: termina prima la partita attiva.");
       transaction.set(lockRef, {
-        active: false, collectionName: null, matchId: null, seasonId: null,
+        active: false, collectionName: null, matchId: null, seasonId: null, competitionId: preflightCompetitionId,
         updatedAt: serverTimestamp(),
       });
     }

@@ -312,17 +312,13 @@ async function sendToInstallations({
         {
           tokens: fids,
 
-          /*
-           * Messaggio data-only.
-           *
-           * In background viene visualizzato dal nostro
-           * firebase-messaging-sw.js tramite onBackgroundMessage.
-           * In foreground viene inoltrato alla pagina e mostrato
-           * da PushNotificationService tramite onMessage.
-           *
-           * Evitiamo il payload `notification` per non creare
-           * notifiche duplicate nel browser.
-           */
+          // Test diagnostico iOS: oltre ai dati, forniamo un payload
+          // notification FCM standard. I promemoria operativi restano
+          // data-only finche non e verificata la ricezione su iPhone.
+          // Il service worker attuale gestisce l evento push manualmente.
+          ...(category === "test"
+            ? { notification: { title, body } }
+            : {}),
 
           data: {
             title,

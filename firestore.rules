@@ -19,22 +19,32 @@ service cloud.firestore {
         ).data.active == true;
     }
 
-    // Every change entering/leaving LIVE must share the same atomic global lock.
-    // getAfter() ensures the lock and match are changed in the same batch/transaction.
-    function validGlobalLiveChange(collectionName, matchId) {
-      let lock = getAfter(/databases/$(database)/documents/liveCenterState/global);
+    // Un solo LIVE per competizione, condiviso fra regular season e fasi finali.
+    // Il lock viene identificato dalla competizione della stagione salvata in Firestore.
+    // getAfter() richiede che lo stato del lock e quello della partita siano
+    // coerenti al termine della stessa transazione atomica.
+    function liveCompetitionId() {
+      return get(/databases/$(database)/documents/seasons/$(resource.data.seasonId)).data.competitionId;
+    }
+
+    function validCompetitionLiveChange(collectionName, matchId) {
+      let competitionId = liveCompetitionId();
+      let lock = getAfter(/databases/$(database)/documents/liveCenterState/$("competition-" + competitionId));
       return request.resource.data.status == resource.data.status
         || (
           request.resource.data.status == "live"
           && (resource.data.status == "scheduled" || resource.data.status == "finished")
           && lock.data.active == true
+          && lock.data.competitionId == competitionId
           && lock.data.collectionName == collectionName
           && lock.data.matchId == matchId
+          && lock.data.seasonId == resource.data.seasonId
         )
         || (
           resource.data.status == "live"
           && request.resource.data.status == "finished"
           && lock.data.active == false
+          && lock.data.competitionId == competitionId
         )
         || (
           resource.data.status != "live"
@@ -464,15 +474,38 @@ service cloud.firestore {
       allow create:
         if isAdmin() && request.resource.data.status != "live";
       allow update:
-        if isAdmin() && validGlobalLiveChange("finalStageMatches", documentId);
+        if isAdmin() && validCompetitionLiveChange("finalStageMatches", documentId);
       allow delete:
         if isAdmin() && resource.data.status != "live";
     }
 
-    // Shared mutex for every competition/phase. Never writable by public users.
+    // Il vecchio lock "global" rimane leggibile ma non viene piu' scritto.
+    // Nuovo mutex atomico: un documento per ciascuna competizione.
     match /liveCenterState/{documentId} {
       allow read: if isAdmin();
-      allow create, update: if isAdmin() && documentId == "global";
+      allow create, update: if isAdmin()
+        && documentId.matches('competition-[A-Za-z0-9_-]+')
+        && request.resource.data.competitionId is string
+        && documentId == 'competition-' + request.resource.data.competitionId
+        && request.resource.data.active is bool
+        && request.resource.data.collectionName in ['matches', 'finalStageMatches', null]
+        && request.resource.data.keys().hasOnly([
+          'active', 'collectionName', 'matchId', 'seasonId', 'competitionId', 'updatedAt'
+        ])
+        && request.resource.data.updatedAt == request.time
+        && (
+          (request.resource.data.active == true
+            && request.resource.data.matchId is string
+            && request.resource.data.seasonId is string
+            && request.resource.data.collectionName in ['matches', 'finalStageMatches']
+            && get(/databases/$(database)/documents/seasons/$(request.resource.data.seasonId)).data.competitionId
+              == request.resource.data.competitionId)
+          ||
+          (request.resource.data.active == false
+            && request.resource.data.matchId == null
+            && request.resource.data.seasonId == null
+            && request.resource.data.collectionName == null)
+        );
       allow delete: if false;
     }
 
@@ -566,7 +599,7 @@ service cloud.firestore {
       allow create:
         if isAdmin() && request.resource.data.status != "live";
       allow update:
-        if isAdmin() && validGlobalLiveChange("matches", documentId);
+        if isAdmin() && validCompetitionLiveChange("matches", documentId);
       allow delete:
         if isAdmin() && resource.data.status != "live";
     }

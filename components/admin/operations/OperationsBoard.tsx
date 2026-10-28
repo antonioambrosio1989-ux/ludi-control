@@ -10,6 +10,8 @@ import {
   ArrowRight,
   Clock,
   RefreshCw,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import AppShell from "@/components/ui/AppShell";
 import { useAuth } from "@/src/hooks/useAuth";
@@ -75,6 +77,17 @@ function localRome(ms: number) {
   );
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
+// Le chiavi YYYY-MM-DD vengono calcolate nel fuso italiano, anche a cavallo dell'ora legale.
+function romeDayKey(ms: number): string {
+  return localRome(ms).slice(0, 10);
+}
+
+function moveCalendarMonth(month: string, offset: number): string {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const moved = new Date(Date.UTC(year, monthNumber - 1 + offset, 1));
+  return `${moved.getUTCFullYear()}-${String(moved.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 function emptyForm(): Form {
   return {
     title: "",
@@ -135,6 +148,8 @@ function PersonalOperationsBoard({
   const [editing, setEditing] = useState<OperationalTask | null>(null);
   const [tab, setTab] = useState<"today" | "week" | "all" | "growth">("today");
   const [scope, setScope] = useState<"all" | "competition">("all");
+  const [calendarMonth, setCalendarMonth] = useState(() => romeDayKey(Date.now()).slice(0, 7));
+  const [selectedDay, setSelectedDay] = useState(() => romeDayKey(Date.now()));
   const [now, setNow] = useState(() => Date.now());
   const [question, setQuestion] = useState(
     "Quali sono le tre priorità di oggi e quale esperimento di crescita posso preparare questa settimana?",
@@ -334,8 +349,23 @@ function PersonalOperationsBoard({
   const week = tasks.filter(
     (task) => task.dueAtMs >= now && task.dueAtMs <= now + 7 * 86400000,
   );
+  const [calendarYear, calendarMonthNumber] = calendarMonth.split("-").map(Number);
+  const daysInMonth = new Date(Date.UTC(calendarYear, calendarMonthNumber, 0)).getUTCDate();
+  const firstWeekday = (new Date(Date.UTC(calendarYear, calendarMonthNumber - 1, 1)).getUTCDay() + 6) % 7;
+  const calendarDays = Array.from({ length: firstWeekday + daysInMonth }, (_, index) =>
+    index < firstWeekday ? null : `${calendarMonth}-${String(index - firstWeekday + 1).padStart(2, "0")}`,
+  );
+  const taskCountsByDay = new Map<string, number>();
+  for (const task of tasks) {
+    const day = romeDayKey(task.dueAtMs);
+    taskCountsByDay.set(day, (taskCountsByDay.get(day) ?? 0) + 1);
+  }
+  const monthLabel = new Intl.DateTimeFormat("it-IT", { month: "long", year: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(calendarYear, calendarMonthNumber - 1, 1)));
   const visible =
-    tab === "today"
+    tab === "all"
+      ? tasks.filter((task) => romeDayKey(task.dueAtMs) === selectedDay)
+      : tab === "today"
       ? tasks.filter((task) => task.dueAtMs <= now + 86400000)
       : tab === "week"
         ? tasks.filter((task) => task.dueAtMs <= now + 7 * 86400000)
@@ -436,6 +466,53 @@ function PersonalOperationsBoard({
             Caricamento delle tue attività…
           </p>
         )}
+        {tab === "all" && data && (
+          <section aria-label="Calendario delle attività" className="rounded-2xl border border-[#06142E]/10 p-4 sm:p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-black capitalize">{monthLabel}</h2>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => {
+                  const current = romeDayKey(Date.now());
+                  setCalendarMonth(current.slice(0, 7));
+                  setSelectedDay(current);
+                }} className="rounded-lg border px-3 py-2 text-xs font-bold">Oggi</button>
+                <button type="button" aria-label="Mese precedente" onClick={() => { const month = moveCalendarMonth(calendarMonth, -1); setCalendarMonth(month); setSelectedDay(`${month}-01`); }} className="rounded-lg border p-2"><ChevronLeft size={17} /></button>
+                <button type="button" aria-label="Mese successivo" onClick={() => { const month = moveCalendarMonth(calendarMonth, 1); setCalendarMonth(month); setSelectedDay(`${month}-01`); }} className="rounded-lg border p-2"><ChevronRight size={17} /></button>
+              </div>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center">
+              {["L", "M", "M", "G", "V", "S", "D"].map((weekday, index) => (
+                <span key={index} className="py-2 text-xs font-bold text-[#06142E]/50">{weekday}</span>
+              ))}
+              {calendarDays.map((day, index) => day ? (
+                <button
+                  key={day}
+                  type="button"
+                  aria-label={`${day}: ${taskCountsByDay.get(day) ?? 0} attività`}
+                  aria-pressed={selectedDay === day}
+                  onClick={() => setSelectedDay(day)}
+                  className={`relative flex min-h-12 flex-col items-center justify-center rounded-xl text-sm font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${selectedDay === day ? "bg-[#06142E] text-white" : day === romeDayKey(now) ? "bg-[#F5F5F2] text-[#06142E]" : "text-[#06142E] hover:bg-[#F5F5F2]"}`}
+                >
+                  <span>{Number(day.slice(-2))}</span>
+                  {(taskCountsByDay.get(day) ?? 0) > 0 && (
+                    <span className={`mt-1 h-1.5 w-1.5 rounded-full ${selectedDay === day ? "bg-white" : "bg-blue-600"}`} />
+                  )}
+                </button>
+              ) : <span key={`empty-${index}`} aria-hidden="true" />)}
+            </div>
+            <p className="mt-4 text-xs text-[#06142E]/60">
+              {selectedDay.split("-").reverse().join("/")} · {taskCountsByDay.get(selectedDay) ?? 0} attività aperte.
+              {data.hasMore ? " Sono visualizzate soltanto le prime 100 attività aperte." : ""}
+            </p>
+            <button type="button" onClick={() => {
+              setEditing(null);
+              setForm({ ...emptyForm(), due: `${selectedDay}T09:00` });
+              document.getElementById("operational-task-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }} className="mt-3 flex items-center gap-2 text-sm font-bold text-[#06142E]">
+              <Plus size={16} /> Nuova attività per questo giorno
+            </button>
+          </section>
+        )}
         {tab !== "growth" && data && (
           <section className="space-y-3">
             <h2 className="flex items-center gap-2 text-lg font-black">
@@ -444,7 +521,7 @@ function PersonalOperationsBoard({
                 ? "Da seguire oggi"
                 : tab === "week"
                   ? "La settimana davanti a te"
-                  : "Le prossime scadenze"}
+                  : `Attività del ${selectedDay.split("-").reverse().join("/")}`}
             </h2>
             {visible.length === 0 && (
               <p className="rounded-2xl border p-5 text-sm text-[#06142E]/65">

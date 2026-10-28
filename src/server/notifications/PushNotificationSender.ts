@@ -75,6 +75,7 @@ export const PushNotificationSender = {
     notification,
     respectCategory =
       true,
+    targetFid,
   }: {
     uid:
       string;
@@ -84,6 +85,7 @@ export const PushNotificationSender = {
 
     respectCategory?:
       boolean;
+    targetFid?: string;
   }): Promise<PushSendResult> {
     const normalizedUid =
       uid.trim();
@@ -128,8 +130,13 @@ export const PushNotificationSender = {
         normalizedUid,
       );
 
+    // Il test deve interessare solo il token registrato per questo UID.
+    const selectedInstallations = targetFid
+      ? installations.filter((installation) => installation.fid === targetFid)
+      : installations;
+
     return sendToInstallations({
-      installations,
+      installations: selectedInstallations,
       notification,
     });
   },
@@ -303,7 +310,7 @@ async function sendToInstallations({
     const response =
       await adminMessaging.sendEachForMulticast(
         {
-          fids,
+          tokens: fids,
 
           /*
            * Messaggio data-only.

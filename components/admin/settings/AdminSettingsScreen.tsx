@@ -186,7 +186,7 @@ export default function AdminSettingsScreen() {
       });
 
       setMessage(
-        "Notifica di prova inviata.",
+        "Firebase ha accettato il test per questo dispositivo. Controlla le notifiche dell’iPhone: la visualizzazione non è garantita.",
       );
     } catch (currentError) {
       console.error(

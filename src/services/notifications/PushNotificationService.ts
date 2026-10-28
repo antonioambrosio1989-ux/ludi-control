@@ -895,6 +895,19 @@ export const PushNotificationService = {
     user:
       User;
   }): Promise<void> {
+    let fid = "";
+    try {
+      fid = window.localStorage.getItem(LAST_FID_STORAGE_KEY)?.trim() ?? "";
+    } catch {
+      // Un token non disponibile non può essere usato per un test mirato.
+    }
+    if (!fid) {
+      throw new PushNotificationError(
+        "fcm-registration-failed",
+        "Token Push non trovato su questo dispositivo. Disattiva e riattiva le notifiche.",
+      );
+    }
+
     const idToken =
       await user.getIdToken();
 
@@ -915,6 +928,8 @@ export const PushNotificationService = {
 
           cache:
             "no-store",
+
+          body: JSON.stringify({ fid }),
         },
       );
 

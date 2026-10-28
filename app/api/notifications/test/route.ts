@@ -30,8 +30,19 @@ export async function POST(
         request,
       );
 
+    // Il test riceve il token dall'installazione corrente, mai da un altro dispositivo.
+    const body = await request.json().catch(() => null) as { fid?: unknown } | null;
+    const fid = typeof body?.fid === "string" ? body.fid.trim() : "";
+    if (!fid || fid.length > 512) {
+      return NextResponse.json(
+        { error: "Token di questo dispositivo mancante: riattiva le notifiche dalle impostazioni." },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     const result =
       await PushNotificationSender.sendToUser({
+        targetFid: fid,
         uid,
 
         respectCategory:
@@ -61,7 +72,7 @@ export async function POST(
       return NextResponse.json(
         {
           error:
-            "Nessun dispositivo Push risulta registrato per questo account.",
+            "Questo dispositivo non risulta registrato per questo account.",
 
           result,
         },

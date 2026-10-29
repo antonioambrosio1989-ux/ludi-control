@@ -1,4 +1,4 @@
-const QUIZ_TIME_ZONE =
+﻿const QUIZ_TIME_ZONE =
   "Europe/Rome";
 
 const QUIZ_START_HOUR =
@@ -9,6 +9,11 @@ const QUIZ_ROLLOVER_HOUR =
 
 const THURSDAY =
   4;
+
+
+// Nuovo calendario a partire dal rollover di venerdÃ¬ 30 ottobre 2026.
+const FRIDAY_SWITCH_AT =
+  new Date("2026-10-30T01:00:00.000Z");
 
 const DAY_MS =
   24 * 60 * 60 * 1000;
@@ -28,7 +33,7 @@ type LocalDateTime =
 
 /*
  * Prima finestra ufficiale Ludi Games 2026/27.
- * La Games Season può essere già iniziata, ma la Weekly Challenge
+ * La Games Season puÃ² essere giÃ  iniziata, ma la Weekly Challenge
  * non deve creare finestre ufficiali prima del 1 ottobre 2026.
  */
 const QUIZ_OFFICIAL_FIRST_WEEK_DATE:
@@ -45,16 +50,16 @@ const QUIZ_OFFICIAL_FIRST_WEEK_DATE:
  *
  * Regola ufficiale (Europe/Rome):
  *
- * - la prima finestra ufficiale parte giovedì 1 ottobre 2026 alle 10:00;
- * - dalla seconda settimana in poi la Weekly Challenge parte il giovedì alle 10:00;
- * - termina il giovedì successivo alle 02:00;
- * - dalle 02:00 alle 10:00 il nuovo Quiz è in finestra di
- *   revisione: la settimana nuova è già quella corrente per
- *   Admin/generazione, ma non è ancora giocabile dal pubblico;
- * - il cambio di weekNumber avviene quindi alle 02:00 del giovedì.
+ * - la Week 1 storica resta ancorata a giovedÃ¬ 1 ottobre 2026 alle 10:00;
+ * - dalla Week 5 (30 ottobre 2026) la Weekly Challenge parte il venerdÃ¬ alle 10:00;
+ * - la finestra ordinaria termina il venerdÃ¬ successivo alle 02:00;
+ * - dalle 02:00 alle 10:00 il nuovo Quiz Ã¨ in finestra di
+ *   revisione: la settimana nuova Ã¨ giÃ  quella corrente per
+ *   Admin/generazione, ma non Ã¨ ancora giocabile dal pubblico;
+ * - dopo il passaggio, il cambio di weekNumber avviene alle 02:00 del venerdÃ¬.
  *
  * Il calcolo usa esplicitamente Europe/Rome e non il fuso orario
- * del browser/server, così resta corretto anche con ora legale.
+ * del browser/server, cosÃ¬ resta corretto anche con ora legale.
  * ============================================================
  */
 export function resolveWeekWindow({
@@ -132,6 +137,9 @@ export function resolveWeekWindow({
     );
   }
 
+  const useFriday =
+    target.getTime() >= FRIDAY_SWITCH_AT.getTime();
+
   const seasonFirstThursday =
     findFirstThursday(
       {
@@ -147,7 +155,7 @@ export function resolveWeekWindow({
   /*
    * Per la stagione di lancio non devono esistere Weekly Challenge
    * ufficiali prima del 1 ottobre 2026. Per eventuali Games Season
-   * future, iniziate dopo quella data, resta valido il primo giovedì
+   * future, iniziate dopo quella data, resta valido il primo giovedÃ¬
    * della relativa stagione.
    */
   const firstThursday =
@@ -160,9 +168,16 @@ export function resolveWeekWindow({
       ? QUIZ_OFFICIAL_FIRST_WEEK_DATE
       : seasonFirstThursday;
 
+  // Manteniamo la numerazione storica: Week 1 = 1/2 ottobre,
+  // Week 5 = 29/30 ottobre. Dopo il passaggio, le nuove finestre
+  // iniziano il venerdÃ¬ senza rinumerare le settimane precedenti.
+  const firstWeekDate = useFriday
+    ? addLocalDays(firstThursday, 1)
+    : firstThursday;
+
   const firstRolloverDate =
     addLocalDays(
-      firstThursday,
+      firstWeekDate,
       7,
     );
 
@@ -179,9 +194,9 @@ export function resolveWeekWindow({
     1;
 
   /*
-   * Prima delle 02:00 del giovedì successivo siamo ancora nella
+   * Prima delle 02:00 del giorno di rollover siamo ancora nella
    * Week 1. Dalle 02:00 in poi l'Admin deve invece vedere/preparare
-   * immediatamente la Week 2, anche se inizierà pubblicamente alle 10.
+   * immediatamente la Week 2, anche se inizierÃ  pubblicamente alle 10.
    */
   if (
     target.getTime() >=
@@ -249,7 +264,7 @@ export function resolveWeekWindow({
 
   const startsLocalDate =
     addLocalDays(
-      firstThursday,
+      firstWeekDate,
       (
         weekNumber -
         1
@@ -259,7 +274,7 @@ export function resolveWeekWindow({
 
   const endsLocalDate =
     addLocalDays(
-      firstThursday,
+      firstWeekDate,
       weekNumber *
         7,
     );
@@ -539,3 +554,4 @@ function toRomeDateTime(
     instantMs,
   );
 }
+

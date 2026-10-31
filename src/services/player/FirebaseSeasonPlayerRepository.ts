@@ -1,8 +1,6 @@
 import { mapSeasonPlayer } from "@/src/lib/firestore/mappers/SeasonPlayerDocumentMapper";
 import {
-  addDoc,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -12,6 +10,7 @@ import {
   updateDoc,
   where,
   writeBatch,
+  runTransaction,
 } from "firebase/firestore";
 
 import {
@@ -30,6 +29,16 @@ import type {
 
 const COLLECTION_NAME =
   "seasonPlayers";
+
+// FASE 14I: stesso formato di registro della anteprima 14G
+const REGISTRY_COLLECTION = "seasonPlayerKeys";
+function registryId(seasonId: string, playerId: string): string {
+  const input = new TextEncoder().encode(JSON.stringify([seasonId, playerId]));
+  let binary = "";
+  for (const byte of input) binary += String.fromCharCode(byte);
+  return "sp_" + btoa(binary).replace(/[+]/g, "-").replace(/[/]/g, "_").replace(/=+$/g, "");
+}
+
 
 function normalizeOptionalNumber(
   value?: number,
@@ -369,42 +378,19 @@ if (!teamIsRegistered) {
         }
       }
 
-      const createdDocument =
-        await addDoc(
-          collection(
-            db,
-            COLLECTION_NAME,
-          ),
-          {
-            seasonId:
-              input.seasonId,
-
-            playerId:
-              input.playerId,
-
-            teamId:
-              input.teamId,
-
-            role:
-              input.role,
-
-            shirtNumber:
-              normalizeOptionalNumber(
-                input.shirtNumber,
-              ),
-
-            status:
-              "active",
-
-            createdAt:
-              serverTimestamp(),
-
-            updatedAt:
-              serverTimestamp(),
-          },
-        );
-
-      return createdDocument.id;
+      const rosterRef = doc(collection(db, COLLECTION_NAME));
+      const registryRef = doc(db, REGISTRY_COLLECTION, registryId(input.seasonId, input.playerId));
+      await runTransaction(db, async (tx) => {
+        const existing = await tx.get(registryRef);
+        if (existing.exists()) throw new Error("Giocatore gia registrato nella stagione.");
+        tx.set(rosterRef, {
+          seasonId: input.seasonId, playerId: input.playerId, teamId: input.teamId,
+          role: input.role, shirtNumber: normalizeOptionalNumber(input.shirtNumber),
+          status: "active", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+        });
+        tx.set(registryRef, { seasonId: input.seasonId, playerId: input.playerId, seasonPlayerId: rosterRef.id });
+      });
+      return rosterRef.id;
     },
 
     async createMany(
@@ -589,47 +575,36 @@ if (invalidTeamInput) {
         }
       }
 
-      const batch =
-        writeBatch(db);
-
-      for (const input of inputs) {
-        const reference = doc(
-          collection(
-            db,
-            COLLECTION_NAME,
-          ),
-        );
-
-        batch.set(reference, {
-          seasonId:
-            input.seasonId,
-
-          playerId:
-            input.playerId,
-
-          teamId:
-            input.teamId,
-
-          role:
-            input.role,
-
-          shirtNumber:
-            normalizeOptionalNumber(
-              input.shirtNumber,
-            ),
-
-          status:
-            "active",
-
-          createdAt:
-            serverTimestamp(),
-
-          updatedAt:
-            serverTimestamp(),
+      // FASE 14J: lettura delle chiavi dentro la transazione.
+      // Ogni blocco e atomico. Blocchi diversi NON sono atomici tra loro.
+      // Non pubblicare finche registro storico e regole sono completi.
+      for (let offset = 0; offset < inputs.length; offset += 2) {
+        const slice = inputs.slice(offset, offset + 2);
+        const items = slice.map((input) => ({
+          input,
+          rosterRef: doc(collection(db, COLLECTION_NAME)),
+          registryRef: doc(db, REGISTRY_COLLECTION, registryId(input.seasonId, input.playerId)),
+        }));
+        await runTransaction(db, async (tx) => {
+          // Firestore impone tutte le letture prima delle scritture.
+          const keys = await Promise.all(items.map(({registryRef}) => tx.get(registryRef)));
+          for (let index = 0; index < keys.length; index++) {
+            if (keys[index].exists()) {
+              throw new Error(`Giocatore ${items[index].input.playerId} gia presente nel registro.`);
+            }
+          }
+          for (const {input, rosterRef, registryRef} of items) {
+            tx.set(rosterRef, {
+              seasonId: input.seasonId, playerId: input.playerId, teamId: input.teamId,
+              role: input.role, shirtNumber: normalizeOptionalNumber(input.shirtNumber),
+              status: "active", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+            });
+            tx.set(registryRef, {
+              seasonId: input.seasonId, playerId: input.playerId, seasonPlayerId: rosterRef.id,
+            });
+          }
         });
       }
-
-      await batch.commit();
     },
 
     async update(
@@ -756,6 +731,11 @@ async mergePlayerReferences({
   sourcePlayerId: string;
   targetPlayerId: string;
 }): Promise<void> {
+  // FASE 14J-B: protezione registro nelle operazioni di identita
+  if (typeof sourcePlayerId === "string" && typeof targetPlayerId === "string") {
+    throw new Error("Unione profili temporaneamente sospesa: migrazione registro univoco non completata.");
+  }
+
   if (
     !sourcePlayerId.trim() ||
     !targetPlayerId.trim()
@@ -1010,26 +990,35 @@ async mergePlayerReferences({
       seasonPlayerId: string,
     ): Promise<void> {
       const existingSeasonPlayer =
-        await FirebaseSeasonPlayerRepository.getById(
-          seasonPlayerId,
-        );
-
+        await FirebaseSeasonPlayerRepository.getById(seasonPlayerId);
       if (!existingSeasonPlayer) {
-        throw new Error(
-          "Il giocatore stagionale selezionato non esiste.",
-        );
+        throw new Error("Il giocatore stagionale selezionato non esiste.");
       }
-
-      await assertSeasonWritable(
-        existingSeasonPlayer.seasonId,
+      await assertSeasonWritable(existingSeasonPlayer.seasonId);
+      const rosterRef = doc(db, COLLECTION_NAME, seasonPlayerId);
+      const keyRef = doc(
+        db,
+        REGISTRY_COLLECTION,
+        registryId(existingSeasonPlayer.seasonId, existingSeasonPlayer.playerId),
       );
-
-      await deleteDoc(
-        doc(
-          db,
-          COLLECTION_NAME,
-          seasonPlayerId,
-        ),
-      );
+      await runTransaction(db, async (tx) => {
+        const roster = await tx.get(rosterRef);
+        const key = await tx.get(keyRef);
+        if (!roster.exists() || !key.exists()) {
+          throw new Error("Registro non migrato o iscrizione assente: eliminazione bloccata.");
+        }
+        const r = roster.data();
+        if (
+          r.seasonId !== existingSeasonPlayer.seasonId ||
+          r.playerId !== existingSeasonPlayer.playerId ||
+          key.data().seasonPlayerId !== seasonPlayerId ||
+          key.data().seasonId !== r.seasonId ||
+          key.data().playerId !== r.playerId
+        ) {
+          throw new Error("Incoerenza tra iscrizione e registro: eliminazione bloccata.");
+        }
+        tx.delete(rosterRef);
+        tx.delete(keyRef);
+      });
     },
   };

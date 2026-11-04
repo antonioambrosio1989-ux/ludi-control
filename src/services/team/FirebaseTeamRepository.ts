@@ -286,9 +286,7 @@ export const FirebaseTeamRepository = {
         undefined,
 
       aliasName:
-        input.aliasName
-          ?.trim()
-          .toUpperCase() ||
+        input.aliasName?.trim() ||
         undefined,
 
       nickname:
@@ -416,7 +414,7 @@ export const FirebaseTeamRepository = {
       updateData.aliasName =
         typeof aliasName ===
           "string"
-          ? aliasName.toUpperCase()
+          ? aliasName
           : aliasName;
     }
 

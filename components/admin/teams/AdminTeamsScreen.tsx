@@ -772,7 +772,12 @@ setTeamPhotoUrl(
           ),
 
         aliasName:
-          aliasName.trim(),
+          aliasName.trim() ===
+          (teams.find(
+            (team) => String(team.id) === String(editingTeamId)
+          )?.aliasName ?? "").trim()
+            ? undefined
+            : aliasName.trim(),
 
         nickname:
           nickname.trim(),

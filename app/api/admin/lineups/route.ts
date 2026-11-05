@@ -32,6 +32,55 @@ export async function POST(request: NextRequest) {
     let body: Record<string, unknown>;
     try { body = asRecord(await request.json()); }
     catch { return errorResponse("Richiesta JSON non valida.", 400); }
+    if (body.action === "approve_guest") {
+      const { matchId, seasonId, teamId, side, guestId, expectedGuestName } = body;
+      if (!validId(matchId) || !validId(seasonId) || !validId(teamId) ||
+          (side !== "home" && side !== "away") || !validId(guestId) ||
+          typeof expectedGuestName !== "string") {
+        return errorResponse("Dati approvazione non validi.", 400);
+      }
+      const matchRef = adminDb.collection("matches").doc(matchId);
+      const lineupRef = adminDb.collection("matchLineups").doc(matchId);
+      const requestRef = adminDb.collection("lineupRequests").doc(`${matchId}__${teamId}`);
+      const auditRef = adminDb.collection("lineupAdminEdits").doc();
+      await adminDb.runTransaction(async (tx) => {
+        const [matchSnap, lineupSnap, requestSnap] = await Promise.all([
+          tx.get(matchRef), tx.get(lineupRef), tx.get(requestRef),
+        ]);
+        if (!matchSnap.exists || !lineupSnap.exists) throw new Error("Partita o formazione non trovata.");
+        const match = matchSnap.data() ?? {};
+        if (match.seasonId !== seasonId || match[side === "home" ? "homeTeamId" : "awayTeamId"] !== teamId)
+          throw new Error("Squadra o stagione non associata alla partita.");
+        const oldSide = asRecord(lineupSnap.data()?.[side]);
+        if (oldSide.teamId !== teamId) throw new Error("Formazione della squadra non disponibile.");
+        const oldGuests = Array.isArray(oldSide.guestPlayers) ? oldSide.guestPlayers.map(asRecord) : [];
+        const original = oldGuests.find((guest) => guest.id === guestId);
+        if (!original || original.name !== expectedGuestName)
+          throw new Error("Giocatore cambiato da un altro amministratore: aggiorna la schermata.");
+        const previousApproved = stringIds(oldSide.approvedGuestIds);
+        if (previousApproved.includes(guestId)) return;
+        const nextApproved = [...previousApproved, guestId];
+        const changedAt = FieldValue.serverTimestamp();
+        tx.update(lineupRef, {
+          [`${side}.approvedGuestIds`]: nextApproved,
+          [`${side}.adminEditedAt`]: changedAt,
+          [`${side}.lastModifiedAt`]: changedAt,
+          updatedAt: changedAt,
+        });
+        if (requestSnap.exists) tx.update(requestRef, {
+          approvedGuestIds: nextApproved,
+          adminEditedAt: changedAt,
+          updatedAt: changedAt,
+        });
+        tx.set(auditRef, {
+          matchId, seasonId, teamId, side, adminUid: uid,
+          action: "approve_guest", guestId,
+          guestName: expectedGuestName,
+          source: "ludi-control", createdAt: changedAt,
+        });
+      });
+      return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (body.action === "rename_guest") {
       const { matchId, seasonId, teamId, side, guestId, expectedGuestName, lastName, firstName } = body;
       if (!validId(matchId) || !validId(seasonId) || !validId(teamId) ||
@@ -145,7 +194,7 @@ export async function POST(request: NextRequest) {
       let guests = oldGuests;
       let selectedGoalkeeper = typeof goalkeeperId === "string" ? goalkeeperId : "";
       if (selectedGoalkeeper && !(playerIds as string[]).includes(selectedGoalkeeper) &&
-        !oldGuests.some((g) => g.id === selectedGoalkeeper))
+        !oldGuests.some((g) => g.id === selectedGoalkeeper && (g.approved === true || oldGoalkeeper === selectedGoalkeeper)))
         throw new Error("Il portiere selezionato non è tra i convocati.");
       if (typeof guestGoalkeeperName === "string" && guestGoalkeeperName.trim()) {
         const name = guestGoalkeeperName.replace(/\s+/g, " ").trim();

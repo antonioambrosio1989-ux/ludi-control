@@ -118,7 +118,12 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
   const currentSide = sideData(lineup?.[side]);
   const savedIds = ids(currentSide.playerIds);
   const guests = Array.isArray(currentSide.guestPlayers) ? currentSide.guestPlayers : [];
-  const storedGoalkeeperId = asString(currentSide.goalkeeperId);
+  const approvedGuestIds = ids(currentSide.approvedGuestIds);
+  const approvedGuests = guests.map(sideData).filter((guest) => approvedGuestIds.includes(asString(guest.id)));
+  const savedGoalkeeper = sideData(currentSide.goalkeeper);
+  const storedGoalkeeperId = asString(currentSide.goalkeeperId) ||
+    (savedGoalkeeper.kind === "guest" ? asString(savedGoalkeeper.guestPlayerId) :
+      savedGoalkeeper.kind === "roster" ? asString(savedGoalkeeper.playerId) : "");
   const selectedIds = dirty ? draftSelectedIds : savedIds;
   const goalkeeperId = dirty ? draftGoalkeeperId : storedGoalkeeperId;
   const normalizedSurname = goalkeeperSurname.trim().toLocaleLowerCase("it");
@@ -127,6 +132,7 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
   const newGoalkeeperName = [goalkeeperSurname.trim(), goalkeeperFirstName.trim()].filter(Boolean).join(" ");
   const goalkeeperNeedsReplacement = Boolean(storedGoalkeeperId && !selectedIds.includes(storedGoalkeeperId) &&
     !guests.some((guest) => sideData(guest).id === storedGoalkeeperId) && !goalkeeperId && !guestGoalkeeper);
+  const eligibleGuestGoalkeepers = approvedGuests.filter((guest) => asString(guest.id));
   const visibleRoster = roster.filter((player) =>
     player.name.toLocaleLowerCase("it").includes(search.trim().toLocaleLowerCase("it")));
 
@@ -165,6 +171,29 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
     } finally { setBusy(false); }
   }
 
+  async function approveGuest(guestId: string) {
+    if (!match || !teamId || !seasonId || busy || dirty) return;
+    const guest = guests.map(sideData).find((entry) => asString(entry.id) === guestId);
+    if (!guest || approvedGuestIds.includes(guestId)) return;
+    setBusy(true); setError(""); setSuccess("");
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error("Devi effettuare l'accesso come amministratore.");
+      const token = await user.getIdToken();
+      const response = await fetch("/api/admin/lineups", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "approve_guest", matchId: match.id, seasonId, teamId,
+          side, guestId, expectedGuestName: asString(guest.name) }),
+      });
+      const result = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || !result.ok) throw new Error(result.error ?? "Approvazione non riuscita.");
+      setSuccess("Giocatore approvato per questa partita: ora Ã¨ selezionabile come portiere.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Approvazione non riuscita.");
+    } finally { setBusy(false); }
+  }
+
   function resetToSaved() {
     setDraftSelectedIds(savedIds); setDraftGoalkeeperId(storedGoalkeeperId); setGuestGoalkeeper("");
     setGoalkeeperWizard(false); setDirty(false); setSuccess("");
@@ -188,7 +217,7 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
     if (goalkeeperWizard || goalkeeperNeedsReplacement) {
       setError("Prima di salvare indica chi giocherà in porta."); return;
     }
-    if (goalkeeperId && !selectedIds.includes(goalkeeperId) && !guestGoalkeeper) {
+    if (goalkeeperId && !selectedIds.includes(goalkeeperId) && !eligibleGuestGoalkeepers.some((g) => g.id === goalkeeperId) && goalkeeperId !== storedGoalkeeperId && !guestGoalkeeper) {
       setError("Il portiere selezionato non è nella formazione."); return;
     }
     setBusy(true); setError(""); setSuccess("");
@@ -246,6 +275,9 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
             onChange={(event) => { setDraftSelectedIds(selectedIds); setDraftGoalkeeperId(event.target.value); setDirty(true); }}>
             <option value="">Nessuno selezionato</option>
             {roster.filter((p) => selectedIds.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {eligibleGuestGoalkeepers.map((guest) => <option key={asString(guest.id)} value={asString(guest.id)}>
+              {asString(guest.name)} (provvisorio approvato)
+            </option>)}
           </select>
         </label>}
         {(goalkeeperWizard || goalkeeperNeedsReplacement) && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2">
@@ -288,11 +320,16 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
             <input type="checkbox" checked={selectedIds.includes(player.id)} onChange={() => toggle(player.id)} />
             {player.name}
           </label>)}
-          {!roster.length && <p className="text-xs text-amber-700">Nessun giocatore attivo trovato per questa rosa.</p>}
+          {approvedGuests.filter((guest) => asString(guest.name).toLocaleLowerCase("it").includes(search.trim().toLocaleLowerCase("it")))
+            .map((guest) => <div key={asString(guest.id)} className="flex items-center gap-2 rounded-lg bg-green-50 p-2 text-sm">
+              <span className="font-bold text-green-700">âœ“</span>
+              <span>{asString(guest.name)} Â· Presente (provvisorio approvato)</span>
+            </div>)}
+          {!roster.length && approvedGuests.length === 0 && <p className="text-xs text-amber-700">Nessun giocatore attivo trovato per questa rosa.</p>}
         </div>
         {!!guests.length && <div className="mt-3 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
           <p className="text-xs font-black text-amber-900">Giocatori provvisori della partita</p>
-          <p className="text-xs text-amber-800">La correzione del nominativo non modifica la rosa stagionale.</p>
+          <p className="text-xs text-amber-800">Correggi il nominativo, poi approva il giocatore per inserirlo tra i presenti della singola partita. La rosa stagionale resta invariata.</p>
           {guests.map((value) => {
             const guest = sideData(value);
             const guestId = asString(guest.id);
@@ -300,6 +337,12 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
             return <div key={guestId} className="rounded-lg border border-amber-200 bg-white p-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-bold text-[#06142E]">{asString(guest.name) || "Senza nome"}{guestId === goalkeeperId ? " (GK)" : ""}</span>
+                {!approvedGuestIds.includes(guestId) && <button type="button" disabled={busy || dirty || editingGuestId === guestId}
+                  onClick={() => void approveGuest(guestId)}
+                  className="rounded-lg bg-green-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
+                  Approva per questa partita
+                </button>}
+                {approvedGuestIds.includes(guestId) && <span className="text-xs font-bold text-green-700">Approvato</span>}
                 <button type="button" disabled={busy || dirty} onClick={() => beginGuestEdit(guest)}
                   className="rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-40">Modifica nominativo</button>
               </div>

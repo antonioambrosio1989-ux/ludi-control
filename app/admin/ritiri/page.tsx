@@ -38,6 +38,13 @@ export default function WithdrawalRegistryPage() {
   const [config, setConfig] = useState<SavedConfig | null>(null);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [teamId, setTeamId] = useState("");
+  useEffect(() => {
+    const preselectedTeamId = new URLSearchParams(window.location.search).get("teamId");
+    if (!preselectedTeamId || !/^[A-Za-z0-9_-]{1,128}$/.test(preselectedTeamId)) return;
+    if (entries.some(entry => entry.status === "active" && String(entry.teamId) === preselectedTeamId)) {
+      setTeamId(preselectedTeamId);
+    }
+  }, [entries]);
   const [effectiveMatchweek, setEffectiveMatchweek] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);

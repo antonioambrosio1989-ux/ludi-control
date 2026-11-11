@@ -49,7 +49,7 @@ export default function WithdrawalOfficialControls({seasonId,teamId,teamName,eff
   }
   return <div className="mt-3 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
     <h4 className="font-black text-slate-900">Operazioni ufficiali — {teamName}</h4>
-    <p className="text-xs text-amber-950">Consentite soltanto nel girone di ritorno con calendario stagionale completo e senza anomalie. Ogni azione è verificata nuovamente sul server.</p>
+    <p className="text-xs text-amber-950">Ritorno: tavolini progressivi. Andata: annullamento completo solo senza effetti disciplinari da riconciliare. con calendario stagionale completo e senza anomalie. Ogni azione è verificata nuovamente sul server.</p>
     {!active&&status?.state==='draft_pending_activation'&&<>
       <p>Per attivare digita: <strong>RITIRA {teamId}</strong></p>
       <input aria-label="Conferma ufficiale" className="w-full rounded-lg border p-2" value={confirm} onChange={e=>setConfirm(e.target.value)}/>
@@ -59,7 +59,7 @@ export default function WithdrawalOfficialControls({seasonId,teamId,teamName,eff
     {active&&<>
       <p className="font-black text-green-800">Ritiro ufficiale attivo.</p>
       {status?.plannedWeeks.map(w=><p key={w} className="text-xs">Giornata {w}: {status.closures.some(c=>c.week===w)?'CHIUSA':'da chiudere dopo tutti i tabellini della giornata'}</p>)}
-      {nextWeek!==null&&<>
+      {status?.policy === 'retain_and_walkover' && nextWeek!==null&&<>
         <label className="block">Giornata da chiudere
           <select className="ml-2 rounded-lg border p-2" value={pending??''} onChange={e=>{setWeek(Number(e.target.value));setConfirm('');}}>
             {status?.plannedWeeks.filter(w=>!status.closures.some(c=>c.week===w)).map(w=><option value={w} key={w}>{w}</option>)}

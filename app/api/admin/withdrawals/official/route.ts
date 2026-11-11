@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/src/lib/firebaseAdmin';
 import { activateOfficialSecondLegWithdrawal, closeAndAwardOfficialWeek } from '@/src/services/withdrawal/WithdrawalOfficialProduction';
+import { activateOfficialFirstLegWithdrawal } from '@/src/services/withdrawal/WithdrawalOfficialFirstLeg';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -46,7 +47,16 @@ export async function POST(req:NextRequest){
   try{
     if(data.action==='activate'){
       if(data.confirmation!==`RITIRA ${base.teamId}`)return respond({error:'Conferma testuale mancante.'},400);
-      return respond({ok:true,...await activateOfficialSecondLegWithdrawal(adminDb,base)});
+      const candidate = await adminDb.collection('seasons').doc(base.seasonId)
+        .collection('withdrawalRegistrations').doc(base.teamId).get();
+      const policy = candidate.data()?.policy;
+      if (policy === 'void_all') {
+        return respond({ok:true,...await activateOfficialFirstLegWithdrawal(adminDb,base)});
+      }
+      if (policy === 'retain_and_walkover') {
+        return respond({ok:true,...await activateOfficialSecondLegWithdrawal(adminDb,base)});
+      }
+      throw new Error('Policy del ritiro non valida.');
     }
     if(data.action==='close_and_award'){
       if(!Number.isSafeInteger(data.matchweek)||(data.matchweek as number)<1||

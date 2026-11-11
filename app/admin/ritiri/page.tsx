@@ -124,7 +124,7 @@ export default function WithdrawalRegistryPage() {
         <p className="mt-2 text-sm text-[#06142E]/60">{selectedCompetition?.name ?? "Competizione"} · {currentSeason?.name ?? "Nessuna stagione selezionata"}</p>
       </header>
       <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
-        Ritiri ufficiali nel girone di ritorno: attivazione controllata e tavolini 6â€“0 soltanto dopo chiusura verificata. Le bozze non producono effetti.
+        Ritiri ufficiali: il ritorno gestisce tavolini progressivi. In andata l'annullamento completo e' consentito solo senza effetti disciplinari; ogni caso non verificabile viene bloccato.
       </div>
       {!seasonId ? <p>Nessuna stagione attiva selezionata.</p> : <>
         <section className="space-y-3 rounded-2xl bg-white p-5 shadow-sm">
@@ -165,7 +165,7 @@ export default function WithdrawalRegistryPage() {
               <p><strong>{teamName(r.teamId)}</strong> · Giornata {r.effectiveMatchweek} · {r.policy==="void_all"?"Annullamento":"Tavolini progressivi"} · <strong>{r.state === "draft_cancelled" ? "BOZZA ANNULLATA" : r.state === "draft_pending_activation" ? "BOZZA" : "STATO DA VERIFICARE"}</strong></p>
               {r.state === "draft_pending_activation" && r.effectsApplied === false && <button type="button" disabled={busy} onClick={()=>void cancelDraft(r)} className="rounded-lg border border-red-300 px-3 py-2 text-xs font-bold text-red-700 disabled:opacity-40">Annulla bozza</button>}
               {r.state === "draft_pending_activation" && r.effectsApplied === false && <WithdrawalUnifiedPreviewPanel key={`${seasonId}:${r.teamId}:${r.effectiveMatchweek}`} seasonId={seasonId} teamId={r.teamId} teamName={teamName(r.teamId)} effectiveMatchweek={r.effectiveMatchweek} />}
-              {r.policy === 'retain_and_walkover' && (r.state === 'draft_pending_activation' || (r.state === 'active' && r.effectsApplied === true)) && <WithdrawalOfficialControls seasonId={seasonId} teamId={r.teamId} teamName={teamName(r.teamId)} effectiveMatchweek={r.effectiveMatchweek} onChanged={reload} />}
+              {(r.policy === 'retain_and_walkover' || r.policy === 'void_all') && (r.state === 'draft_pending_activation' || (r.state === 'active' && r.effectsApplied === true)) && <WithdrawalOfficialControls seasonId={seasonId} teamId={r.teamId} teamName={teamName(r.teamId)} effectiveMatchweek={r.effectiveMatchweek} onChanged={reload} />}
             </div>)}
         </section>
       </>}

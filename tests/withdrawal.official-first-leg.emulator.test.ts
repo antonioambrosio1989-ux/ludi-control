@@ -45,23 +45,32 @@ describe('11F-23: official first leg void_all, safe subset', () => {
     expect((await match(1).get()).data()?.homeScore).toBe(3);
     expect((await report().get()).data()?.status).toBe('published');
   });
-  it('rejects missing future fixture without activating',async()=>{
+  it('accepts an incomplete future calendar without changing other matches',async()=>{
     await match(4).delete();
-    await expect(activateOfficialFirstLegWithdrawal(db,input())).rejects.toThrow(/calendario/i);
-    expect((await registration().get()).data()?.state).toBe('draft_pending_activation');
+    const result = await activateOfficialFirstLegWithdrawal(db,input());
+    expect(result.status).toBe('applied');
+    expect(result.fixtureCount).toBe(3);
+    expect((await registration().get()).data()?.state).toBe('active');
   });
-  it('rejects published yellows until chronological discipline is available',async()=>{
+  it('preserves yellow cards from the original published report',async()=>{
     await report().update({'data.performances.p1.yellowCards':1});
-    await expect(activateOfficialFirstLegWithdrawal(db,input())).rejects.toThrow(/cartellini/i);
-    expect((await ledger().get()).exists).toBe(false);
+    await activateOfficialFirstLegWithdrawal(db,input());
+    expect((await report().get()).data()?.data.performances.p1.yellowCards).toBe(1);
+    expect((await ledger().get()).data()?.policy).toBe('void_all');
   });
-  it('rejects existing disciplinary suspensions',async()=>{
-    await db.collection('disciplinarySuspensions').doc(`${seasonId}_s1`).set({seasonId,playerId:'p1',reason:'directRed'});
-    await expect(activateOfficialFirstLegWithdrawal(db,input())).rejects.toThrow(/disciplinare/i);
+  it('retains existing disciplinary suspensions without rewriting',async()=>{
+    const ref=db.collection('disciplinarySuspensions').doc(`${seasonId}_s1`);
+    await ref.set({seasonId,playerId:'p1',reason:'directRed',status:'active'});
+    await activateOfficialFirstLegWithdrawal(db,input());
+    expect((await ref.get()).data()).toMatchObject({reason:'directRed',status:'active'});
+    expect((await audit().get()).data()?.preservedSuspensionIds).toContain(ref.id);
   });
-  it('rejects existing disciplinary records',async()=>{
-    await db.collection('disciplinaryRecords').doc(`${seasonId}_p1`).set({seasonId,playerId:'p1',seasonYellowCards:0});
-    await expect(activateOfficialFirstLegWithdrawal(db,input())).rejects.toThrow(/disciplinare/i);
+  it('retains existing disciplinary records without rewriting',async()=>{
+    const ref=db.collection('disciplinaryRecords').doc(`${seasonId}_p1`);
+    await ref.set({seasonId,playerId:'p1',seasonYellowCards:3});
+    await activateOfficialFirstLegWithdrawal(db,input());
+    expect((await ref.get()).data()?.seasonYellowCards).toBe(3);
+    expect((await audit().get()).data()?.preservedDisciplinaryRecordIds).toContain(ref.id);
   });
   it('rejects played future match and preserves original draft',async()=>{
     await match(2).update({status:'played',homeScore:1,awayScore:0});

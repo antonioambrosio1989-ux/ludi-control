@@ -144,11 +144,10 @@ function carryOverDiscipline(
     for (const performance of Object.values(report.data.performances ?? {})) {
       const total = byId.get(String(performance.playerId));
       if (!total) continue;
-      for (const value of [performance.yellowCards, performance.redCards, performance.directRedCards]) {
-        if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
-          issues.push(`Cartellini non verificabili nel tabellino ${matchId}.`);
-          continue;
-        }
+      if ([performance.yellowCards, performance.redCards, performance.directRedCards]
+        .some(value => value !== undefined && (!Number.isSafeInteger(value) || value < 0))) {
+        issues.push(`Cartellini non verificabili nel tabellino ${matchId}.`);
+        continue;
       }
       total.yellowCards += performance.yellowCards ?? 0;
       total.redCards += performance.redCards ?? 0;

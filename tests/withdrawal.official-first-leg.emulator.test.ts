@@ -35,7 +35,7 @@ beforeEach(async () => {
     data:{status:'played',homeScore:3,awayScore:2,performances:{p1:{playerId:'p1',teamId, yellowCards:0,directRedCards:0}}}}));
   await Promise.all(writes);
 });
-describe('11F-23: official first leg void_all, safe subset', () => {
+describe('11F-27: official first leg void_all, verified legacy fixtures', () => {
   it('activates atomically while preserving original matches and reports', async()=>{
     const r=await activateOfficialFirstLegWithdrawal(db,input());
     expect(r.status).toBe('applied');
@@ -71,6 +71,50 @@ describe('11F-23: official first leg void_all, safe subset', () => {
     await activateOfficialFirstLegWithdrawal(db,input());
     expect((await ref.get()).data()?.seasonYellowCards).toBe(3);
     expect((await audit().get()).data()?.preservedDisciplinaryRecordIds).toContain(ref.id);
+  });
+  it('preserves legacy published 6-0 walkover and cancelled fixtures from the effective week',async()=>{
+    await match(2).update({status:'walkover',published:true});
+    await match(3).update({status:'cancelled',published:true});
+    await db.collection('matchReports').doc(`${seasonId}_walkover`).set({
+      seasonId,matchId:match(2).id,status:'published',
+      data:{status:'walkover',homeScore:0,awayScore:6},
+    });
+    const result=await activateOfficialFirstLegWithdrawal(db,input());
+    expect(result.status).toBe('applied');
+    expect((await match(2).get()).data()?.status).toBe('walkover');
+    expect((await match(3).get()).data()?.status).toBe('cancelled');
+    expect((await db.collection('matchReports').doc(`${seasonId}_walkover`).get()).data()?.data)
+      .toMatchObject({homeScore:0,awayScore:6});
+    expect((await ledger().get()).data()?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({matchweek:2,effect:'void',reportIds:[`${seasonId}_walkover`]}),
+      expect.objectContaining({matchweek:3,effect:'void',reportIds:[]}),
+    ]));
+  });
+  it('rejects inconsistent legacy walkover score without modifying draft',async()=>{
+    await match(2).update({status:'walkover',published:true});
+    await db.collection('matchReports').doc(`${seasonId}_walkover`).set({
+      seasonId,matchId:match(2).id,status:'published',
+      data:{status:'walkover',homeScore:6,awayScore:0},
+    });
+    await expect(activateOfficialFirstLegWithdrawal(db,input())).rejects.toThrow(/tavolino|futura/i);
+    expect((await registration().get()).data()?.state).toBe('draft_pending_activation');
+    expect((await ledger().get()).exists).toBe(false);
+  });
+  it('rejects cancelled fixture that already has a published report',async()=>{
+    await match(2).update({status:'cancelled',published:true});
+    await db.collection('matchReports').doc(`${seasonId}_cancelled`).set({
+      seasonId,matchId:match(2).id,status:'published',
+      data:{status:'cancelled',homeScore:0,awayScore:0},
+    });
+    await expect(activateOfficialFirstLegWithdrawal(db,input())).rejects.toThrow(/futura/i);
+    expect((await audit().get()).exists).toBe(false);
+  });
+  it('rejects a past published score mismatch without rewriting either result',async()=>{
+    await report().update({'data.homeScore':4});
+    await expect(activateOfficialFirstLegWithdrawal(db,input())).rejects.toThrow(/non coincidono/i);
+    expect((await match(1).get()).data()?.homeScore).toBe(3);
+    expect((await report().get()).data()?.data.homeScore).toBe(4);
+    expect((await registration().get()).data()?.effectsApplied).toBe(false);
   });
   it('rejects played future match and preserves original draft',async()=>{
     await match(2).update({status:'played',homeScore:1,awayScore:0});

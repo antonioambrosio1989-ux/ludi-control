@@ -2,7 +2,7 @@
  * Official first-leg / single-round-robin withdrawal. Voids sporting outcomes
  * in verified public projections but leaves historical disciplinary documents
  * and original match reports intact. Future unimported weeks stay excluded
- * dynamically by the server-side withdrawal register.
+ * dynamically by the server-side withdrawal register. Already published 6-0\n * walkovers and cancelled fixtures can be preserved in the original archive.
  */
 import { createHash } from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
@@ -87,9 +87,26 @@ export async function activateOfficialFirstLegWithdrawal(db: Firestore, input: I
           throw new Error(`Giornata ${week}: risultato e tabellino non coincidono.`);
         // Preserve cards and suspensions in their original published sources;
         // only sporting inputs are filtered by the official withdrawal reader.
-      } else if (match.data.status !== 'scheduled' || match.data.homeScore != null ||
-                 match.data.awayScore != null || related.length !== 0) {
-        throw new Error(`Giornata ${week}: gara futura non integra.`);
+      } else {
+        // Legacy fixtures may already be settled before the withdrawal is
+        // registered. Their sporting outcome is voided by the official read
+        // filter, not rewritten. Require an unambiguous, published 6-0 report
+        // for walkovers; cancelled fixtures must have no scores or reports.
+        const status = id(match.data.status);
+        const noMatchScore = match.data.homeScore == null && match.data.awayScore == null;
+        const scheduled = status === 'scheduled' && noMatchScore && related.length === 0;
+        const cancelled = status === 'cancelled' && noMatchScore && related.length === 0;
+        const walkoverReport = related.length === 1 ? related[0].data : null;
+        const score = walkoverReport?.data as Record<string, unknown> | undefined;
+        const homeIsWithdrawn = id(match.data.homeTeamId) === input.teamId;
+        const expectedHome = homeIsWithdrawn ? 0 : 6;
+        const expectedAway = homeIsWithdrawn ? 6 : 0;
+        const walkover = status === 'walkover' && noMatchScore &&
+          walkoverReport?.status === 'published' &&
+          score?.status === 'walkover' &&
+          score?.homeScore === expectedHome && score?.awayScore === expectedAway;
+        if (!scheduled && !cancelled && !walkover)
+          throw new Error(`Giornata ${week}: gara futura non integra o tavolino preesistente incoerente.`);
       }
       entries.push({matchId:match.id,matchweek:week,opponentTeamId:opponent,
         effect:'void',reportIds:related.map(r=>r.id)});

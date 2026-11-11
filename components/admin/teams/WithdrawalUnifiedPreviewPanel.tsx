@@ -68,7 +68,7 @@ export default function WithdrawalUnifiedPreviewPanel({ seasonId, teamId, teamNa
   const activation = summarizeWithdrawalActivation(data?.activationAudit);
   const activationItems = data?.activationAudit?.checks ?? [];
   const activationGroups = [
-    { title: "Funzionalità non ancora disponibili", subtitle: "Requisiti tecnici mancanti prima di un ritiro effettivo", items: activationItems.filter(item => activation.pendingFeatures.includes(item.code)), style: "border-amber-300 bg-amber-50 text-amber-950" },
+    { title: "Segnalazioni del vecchio audit", subtitle: "Valutazioni della fase 7B da confrontare con i controlli ufficiali attuali", items: activationItems.filter(item => activation.pendingFeatures.includes(item.code)), style: "border-amber-300 bg-amber-50 text-amber-950" },
     { title: "Anomalie bloccanti dei dati", subtitle: "Richiedono correzione o approfondimento", items: activationItems.filter(item => item.severity === "blocking" && !activation.pendingFeatures.includes(item.code)), style: "border-red-300 bg-red-50 text-red-950" },
     { title: "Controlli amministrativi e calendario", subtitle: "Non sono di per sé errori; vanno gestiti prima dell’applicazione", items: activationItems.filter(item => item.severity === "review"), style: "border-slate-300 bg-white text-slate-800" },
     { title: "Informazioni", subtitle: "Osservazioni del controllo", items: activationItems.filter(item => item.severity === "information"), style: "border-slate-200 bg-white text-slate-800" },
@@ -85,23 +85,23 @@ export default function WithdrawalUnifiedPreviewPanel({ seasonId, teamId, teamNa
     {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
     {data && <div className="mt-4 space-y-4">
       <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
-        <p className="font-black">Simulazione non autorizzata all'applicazione</p>
-        <p className="mt-1 text-xs">Il ritiro definitivo rimane disabilitato anche in assenza di avvisi. I risultati dipendono dai dati importati e devono essere verificati.</p>
+        <p className="font-black">Anteprima informativa — nessuna modifica ai dati</p>
+        <p className="mt-1 text-xs">Questa simulazione non costituisce autorizzazione al ritiro. Per conoscere i controlli effettivi e attivare un ritiro, usa la sezione «Operazioni ufficiali» qui sopra. Il server verifica nuovamente i dati al momento della conferma.</p>
       </div>
       <section className="space-y-3 rounded-xl border border-slate-300 bg-white p-3 sm:p-4" aria-label="Audit preliminare di attivazione">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div><h4 className="font-black text-[#06142E]">Audit di attivazione — fase 7B</h4>
-            <p className="mt-1 text-xs text-slate-600">Controlli preliminari separati dalla simulazione sportiva. La conferma definitiva resta disabilitata.</p></div>
-          <span className="rounded-md bg-red-100 px-2 py-1 text-xs font-black text-red-900">NON ATTIVABILE</span>
+          <div><h4 className="font-black text-[#06142E]">Audit storico — fase 7B (informativo)</h4>
+            <p className="mt-1 text-xs text-slate-600">Questi controlli appartengono alla versione preliminare e possono segnalare requisiti non più attuali. Non determinano se l'operazione ufficiale sia ammessa.</p></div>
+          <span className="rounded-md bg-red-100 px-2 py-1 text-xs font-black text-red-900">AUDIT STORICO</span>
         </div>
         {activation.available && data.activationAudit ? <>
           <p className="text-xs text-slate-700">Gare importate: <strong>{data.activationAudit.source.imported}/{data.activationAudit.source.expected}</strong> · Tabellini pubblicati: <strong>{data.activationAudit.source.published}</strong> · Gare della squadra interessata: <strong>{data.activationAudit.source.affectedFixtures}</strong></p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[["Controlli senza anomalie rilevate", activation.passed.length], ["Funzionalità mancanti", activation.missing.length], ["Anomalie bloccanti", activation.blocking.length], ["Da verificare", activation.review.length]].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-slate-200 bg-slate-50 p-2"><p className="text-[11px] text-slate-600">{label}</p><p className="text-lg font-black text-[#06142E]">{value}</p></div>)}
           </div>
-          {activation.passed.length > 0 && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-950"><h5 className="text-xs font-black">Controlli senza anomalie rilevate</h5><ul className="mt-1 list-disc space-y-1 pl-4 text-xs">{activation.passed.map(value => <li key={value}>{value}</li>)}</ul><p className="mt-2 text-[11px]">Questi controlli non costituiscono autorizzazione all’applicazione.</p></div>}
+          {activation.passed.length > 0 && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-950"><h5 className="text-xs font-black">Controlli senza anomalie rilevate</h5><ul className="mt-1 list-disc space-y-1 pl-4 text-xs">{activation.passed.map(value => <li key={value}>{value}</li>)}</ul><p className="mt-2 text-[11px]">Questi controlli non costituiscono autorizzazione ufficiale.</p></div>}
           {activationGroups.filter(group => group.items.length > 0).map(group => <div key={group.title} className={`rounded-lg border p-3 ${group.style}`}><h5 className="text-xs font-black">{group.title} ({group.items.length})</h5><p className="mt-1 text-[11px]">{group.subtitle}</p><ul className="mt-2 list-disc space-y-2 pl-4 text-xs">{group.items.map(item => <li key={item.code}><span className="font-semibold">{item.message}</span>{item.matchIds?.length ? <p className="mt-1 text-[11px]">Gare coinvolte: {item.matchIds.map(id => noticeMatchNames[id] ?? id).join(" · ")}{showIds && <span className="block text-slate-500">ID: {item.matchIds.join(", ")}</span>}</p> : null}</li>)}</ul></div>)}
-        </> : <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-red-950">Audit di attivazione assente o non valido nella risposta. Nessuna conclusione favorevole può essere tratta: ritiro non attivabile.</div>}
+        </> : <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-red-950">Audit storico assente o non valido. Verifica lo stato del ritiro nella sezione Operazioni ufficiali.</div>}
       </section>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {[

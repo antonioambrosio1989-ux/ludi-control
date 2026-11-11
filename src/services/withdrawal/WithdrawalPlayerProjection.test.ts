@@ -26,12 +26,12 @@ const base = (overrides: Partial<WithdrawalIndividualInput> = {}): WithdrawalInd
 const player = (arr: ReturnType<typeof buildWithdrawalIndividualProjection>["before"], id: string) => arr.find(x => x.playerId === id)!;
 
 describe("fase 5B - proiezione statistiche individuali", () => {
-  it("esclude gol assist MVP e cartellini da entrambe le squadre nella gara annullata", () => {
+  it("esclude gol assist MVP ma conserva i cartellini delle gare annullate", () => {
     const p = buildWithdrawalIndividualProjection(base());
     expect(player(p.before,"p").goals).toBe(4);
     expect(player(p.after,"p").goals).toBe(2);
     expect(player(p.after,"p").assists).toBe(1);
-    expect(player(p.after,"p").yellowCards).toBe(1);
+    expect(player(p.after,"p").yellowCards).toBe(2);
     expect(player(p.after,"p").mvp).toBe(1);
     expect(player(p.after,"q").appearances).toBe(0);
   });

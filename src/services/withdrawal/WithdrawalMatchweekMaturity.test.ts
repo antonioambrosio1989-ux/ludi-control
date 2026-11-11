@@ -1,0 +1,27 @@
+import { describe, expect, it } from 'vitest';
+import { evaluateWithdrawalMatchweekMaturity as evaluate } from './WithdrawalMatchweekMaturity';
+import type { FutureImportDecision } from './WithdrawalFutureImportPlanner';
+const config = {format:'double_round_robin' as const,totalMatchweeks:22,firstReturnMatchweek:12};
+const fixture = {id:'m1',seasonId:'s',matchweek:16,homeTeamId:'withdrawn',awayTeamId:'opponent',status:'scheduled',matchType:'regularSeason'};
+const candidate:FutureImportDecision={matchId:'m1',matchweek:16,opponentTeamId:'opponent',action:'walkover_candidate',assignedPoints:0,reason:'test'};
+const input=()=>({seasonId:'s',withdrawnTeamId:'withdrawn',config,effectiveMatchweek:15,fixtures:[fixture],officiallyClosedMatchweeks:[] as number[],recordedWalkoverMatchIds:[] as string[],decisions:[candidate]});
+describe('fase 8B: maturazione sicura tavolini',()=>{
+ it('non anticipa la giornata non chiusa',()=>expect(evaluate(input()).checks[0].outcome).toBe('not_due'));
+ it('propone solo dopo attestazione della giornata',()=>{const i=input();i.officiallyClosedMatchweeks=[16];expect(evaluate(i).checks[0].outcome).toBe('ready_for_review')});
+ it('non assegna punti anche quando matura',()=>{const i=input();i.officiallyClosedMatchweeks=[16];expect(evaluate(i).checks[0].assignedPoints).toBe(0);expect(evaluate(i).safeToPublish).toBe(false)});
+ it('identifica idempotentemente le gare registrate',()=>{const i=input();i.officiallyClosedMatchweeks=[16];i.recordedWalkoverMatchIds=['m1'];expect(evaluate(i).checks[0].outcome).toBe('already_recorded')});
+ it('scarta una partita gia disputata',()=>{const i=input();i.officiallyClosedMatchweeks=[16];i.fixtures=[{...fixture,status:'played'}];expect(evaluate(i).checks[0].outcome).toBe('requires_review')});
+ it('scarta partita rinviata',()=>{const i=input();i.officiallyClosedMatchweeks=[16];i.fixtures=[{...fixture,status:'postponed'}];expect(evaluate(i).checks[0].outcome).toBe('requires_review')});
+ it('scarta partita walkover gia nel calendario',()=>{const i=input();i.officiallyClosedMatchweeks=[16];i.fixtures=[{...fixture,status:'walkover'}];expect(evaluate(i).checks[0].outcome).toBe('requires_review')});
+ it('scarta gare di fase finale',()=>{const i=input();i.officiallyClosedMatchweeks=[16];i.fixtures=[{...fixture,matchType:'titlePlayoff'}];expect(evaluate(i).checks[0].outcome).toBe('requires_review')});
+ it('scarta candidatura con avversario errato',()=>{const i=input();i.officiallyClosedMatchweeks=[16];i.decisions=[{...candidate,opponentTeamId:'another'}];expect(evaluate(i).checks[0].outcome).toBe('requires_review')});
+ it('scarta candidatura con giornata diversa',()=>{const i=input();i.officiallyClosedMatchweeks=[16];i.decisions=[{...candidate,matchweek:17}];expect(evaluate(i).checks[0].outcome).toBe('requires_review')});
+ it('non accetta ritiro nel girone di andata',()=>{const i=input();i.effectiveMatchweek=5;expect(evaluate(i).checks[0].outcome).toBe('requires_review')});
+ it('non accetta candidato di annullamento',()=>{const i=input();i.decisions=[{...candidate,action:'void_candidate'}];expect(evaluate(i).checks[0].outcome).toBe('requires_review')});
+ it('blocca ID partita incoerente nel calendario',()=>{const i=input();i.fixtures=[fixture,{...fixture,awayTeamId:'other'}];i.officiallyClosedMatchweeks=[16];expect(evaluate(i).checks[0].outcome).toBe('requires_review');expect(evaluate(i).issues.length).toBeGreaterThan(0)});
+ it('deduplica decisioni ripetute',()=>{const i=input();i.decisions=[candidate,candidate];expect(evaluate(i).checks).toHaveLength(1);expect(evaluate(i).issues).toHaveLength(1)});
+ it('rifiuta giornate attestate fuori formato',()=>{const i=input();i.officiallyClosedMatchweeks=[23];expect(()=>evaluate(i)).toThrow('Giornata attestata non valida')});
+ it('non confonde una giornata 15 chiusa con la 16',()=>{const i=input();i.officiallyClosedMatchweeks=[15];expect(evaluate(i).checks[0].outcome).toBe('not_due')});
+ it('restituisce esito stabile fra riesecuzioni',()=>{const i=input();i.officiallyClosedMatchweeks=[16];expect(evaluate(i)).toEqual(evaluate(i))});
+ it('richiede la partita importata',()=>{const i=input();i.fixtures=[];expect(evaluate(i).checks[0].outcome).toBe('requires_review')});
+});

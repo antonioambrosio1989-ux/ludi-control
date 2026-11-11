@@ -2,6 +2,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { adminDb } from "@/src/lib/firebaseAdmin";
 import { mapMatch } from "@/src/lib/firestore/mappers/MatchDocumentMapper";
+import { getWithdrawalPublishedInputs } from "./WithdrawalPublishedBoundary";
 import { calculateStandings } from "@/src/services/standings/StandingsCalculator";
 import { buildStandingsMovementMap } from "@/src/services/standings/StandingsMovement";
 import { calculateFirebasePlayerStats } from "@/src/services/stats/FirebasePlayerStatsCalculator";
@@ -42,10 +43,15 @@ export const getPublicSeasonData = unstable_cache(
         season.ref.collection("teamEntries").get(),
         adminDb.collection("teams").get(),
       ]);
-    const matches = regular.docs.map((d) => mapMatch(d.id, d.data()));
-    const publishedReports = reports.docs.map(
+    const rawMatches = regular.docs.map((d) => mapMatch(d.id, d.data()));
+    const rawPublishedReports = reports.docs.map(
       (d) => d.data() as CloudMatchReport,
     );
+    const { matches, reports: publishedReports } = await getWithdrawalPublishedInputs({
+      seasonId,
+      matches: rawMatches,
+      reports: rawPublishedReports,
+    });
     const finalStageMatches = finals.docs.map(
       (d) => ({ ...d.data(), id: d.id }) as FinalStageMatch,
     );

@@ -1,0 +1,21 @@
+import { describe, expect, it } from 'vitest';
+import { allowEmulatorWithdrawalPreparation, buildWithdrawalPreparation, comparePreparedWithdrawal, preparationFingerprint, type PreparedWithdrawalIntent, validWithdrawalId } from './WithdrawalPersistenceContract';
+const config = {format:'double_round_robin',totalMatchweeks:22,firstReturnMatchweek:12} as const;
+const registration = {seasonId:'season1',teamId:'team1',state:'draft_pending_activation',effectsApplied:false,effectiveMatchweek:15,phase:'second_leg',policy:'retain_and_walkover',formatSnapshot:config};
+const build = (overrides:Record<string,unknown>={}) => buildWithdrawalPreparation({seasonId:'season1',teamId:'team1',expectedMatchweek:15,config,registration:{...registration,...overrides}});
+describe('9B: contratto di persistenza sicura (nessun effetto sportivo)',()=>{
+ it('consente solo ID sicuri',()=>{ expect(validWithdrawalId('season-1_2')).toBe(true);expect(validWithdrawalId('../x')).toBe(false);expect(validWithdrawalId('')).toBe(false); });
+ it('richiede emulatore firestore e auth + opt in esplicito',()=>{const e={WITHDRAWAL_TEST_MODE:'emulator',FIRESTORE_EMULATOR_HOST:'127.0.0.1:8080',FIREBASE_AUTH_EMULATOR_HOST:'127.0.0.1:9099'};expect(allowEmulatorWithdrawalPreparation(e)).toBe(true);expect(allowEmulatorWithdrawalPreparation({...e,WITHDRAWAL_TEST_MODE:undefined})).toBe(false);expect(allowEmulatorWithdrawalPreparation({...e,FIRESTORE_EMULATOR_HOST:'prod.firebaseio.com:443'})).toBe(false);expect(allowEmulatorWithdrawalPreparation({...e,FIREBASE_AUTH_EMULATOR_HOST:undefined})).toBe(false);});
+ it('prepara solo lo stato test e mai gli effetti',()=>{const p=build();expect(p.state).toBe('prepared_test_only');expect(p.effectsApplied).toBe(false);expect(p.policy).toBe('retain_and_walkover');});
+ it('rifiuta registrazioni applicate',()=>expect(()=>build({effectsApplied:true})).toThrow());
+ it('rifiuta bozze annullate',()=>expect(()=>build({state:'draft_cancelled'})).toThrow());
+ it('rifiuta squadra o stagione differenti',()=>expect(()=>build({teamId:'team2'})).toThrow());
+ it('rifiuta la giornata cambiata dopo conferma',()=>expect(()=>build({effectiveMatchweek:16})).toThrow());
+ it('rifiuta la policy incoerente',()=>expect(()=>build({policy:'void_all'})).toThrow());
+ it('rifiuta snapshot di formato obsoleto',()=>expect(()=>build({formatSnapshot:{format:'single_round_robin',totalMatchweeks:22,firstReturnMatchweek:null}})).toThrow());
+ it('mantiene fingerprint deterministico',()=>{expect(preparationFingerprint(build())).toBe(preparationFingerprint(build()));});
+ it('distingue una richiesta duplicata idempotente',()=>{const candidate:PreparedWithdrawalIntent={...build(),operationId:'op1'};expect(comparePreparedWithdrawal(undefined,candidate)).toBe('create');expect(comparePreparedWithdrawal(candidate,candidate)).toBe('duplicate');});
+ it('rifiuta una preparazione gia presente ma discordante',()=>{const candidate:PreparedWithdrawalIntent={...build(),operationId:'op1'};expect(()=>comparePreparedWithdrawal({...candidate,operationId:'op2'},candidate)).toThrow();});
+ it('rifiuta uno stato sconosciuto nel registro preparazioni',()=>{const candidate:PreparedWithdrawalIntent={...build(),operationId:'op1'};expect(()=>comparePreparedWithdrawal({...candidate,state:'active'},candidate)).toThrow();});
+ it('supporta il ritiro durante l andata',()=>{const c={format:'single_round_robin',totalMatchweeks:11,firstReturnMatchweek:null};const r={...registration,effectiveMatchweek:4,phase:'first_leg',policy:'void_all',formatSnapshot:c};const p=buildWithdrawalPreparation({seasonId:'season1',teamId:'team1',expectedMatchweek:4,config:c,registration:r});expect(p.policy).toBe('void_all');});
+});

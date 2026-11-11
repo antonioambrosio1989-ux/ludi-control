@@ -27,6 +27,8 @@ import {
 import type {
   Match,
 } from "@/src/types/Match";
+import { guardWithdrawalStandings, parseWithdrawalStateResponse } from "@/src/services/withdrawal/WithdrawalClientStandingsGuard";
+import { applyClientWalkovers, parseClientWalkovers, type ClientWalkover } from "@/src/services/withdrawal/WithdrawalClientMaturedWalkovers";
 
 /*
  * ============================================================
@@ -416,6 +418,65 @@ const seasonTeamIds =
       ],
     );
 
+  // La risposta proviene solo dal registro ritiri verificato dal server.
+  // Senza verifica NON vengono esposti risultati non filtrati.
+  const [withdrawalState, setWithdrawalState] = useState<{
+    seasonId: string;
+    cancelledTeamIds: string[];
+    maturedWalkovers: ClientWalkover[];
+  } | null>(null);
+  const [withdrawalError, setWithdrawalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!seasonId) return;
+    const controller = new AbortController();
+    setWithdrawalState(null);
+    setWithdrawalError(null);
+    const load = async () => {
+      try {
+        const response = await fetch(
+          `/api/public/seasons/${encodeURIComponent(seasonId)}/withdrawal-state`,
+          { cache: 'no-store', signal: controller.signal },
+        );
+        if (!response.ok) throw new Error('Registro ritiri non disponibile.');
+        const payload: unknown = await response.json();
+        const ids = parseWithdrawalStateResponse(payload, seasonId);
+        const maturedWalkovers = parseClientWalkovers(payload, seasonId);
+        if (!controller.signal.aborted) {
+          setWithdrawalState({seasonId, cancelledTeamIds: ids, maturedWalkovers});
+          setWithdrawalError(null);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setWithdrawalState(null);
+          setWithdrawalError(error instanceof Error ? error.message : 'Registro ritiri non disponibile.');
+        }
+      }
+    };
+    void load();
+    const refresh = window.setInterval(() => { void load(); }, 30_000);
+    return () => { controller.abort(); window.clearInterval(refresh); };
+  }, [seasonId]);
+
+  const withdrawalProjection = useMemo(() => {
+    if (!seasonId || withdrawalError || withdrawalState?.seasonId !== seasonId) return null;
+    try {
+      const filtered = guardWithdrawalStandings({
+        seasonId, matches: seasonMatches, reports: seasonReports,
+        cancelledTeamIds: withdrawalState.cancelledTeamIds,
+      });
+      return {
+        ...filtered,
+        matches: applyClientWalkovers({
+          matches: filtered.matches,
+          reports: filtered.reports,
+          walkovers: withdrawalState.maturedWalkovers,
+        }),
+      };
+    } catch (error) {
+      return null;
+    }
+  }, [seasonId, seasonMatches, seasonReports, withdrawalError, withdrawalState]);
   /*
    * ==========================================================
    * LIFECYCLE EFFETTIVO PER LA CLASSIFICA
@@ -438,11 +499,11 @@ const seasonTeamIds =
     useMemo(
       () =>
         buildLifecycleMatchesForStandings(
-          seasonMatches,
+          withdrawalProjection?.matches ?? [],
           currentTime,
         ),
       [
-        seasonMatches,
+        withdrawalProjection,
         currentTime,
       ],
     );
@@ -502,13 +563,13 @@ const seasonTeamIds =
   const standings =
     useMemo(
       () => {
-        if (!seasonId) {
+        if (!seasonId || !withdrawalProjection) {
           return [];
         }
 
         return calculateStandings(
   lifecycleMatches,
-  seasonReports,
+  withdrawalProjection?.reports ?? [],
   {
     competitionId,
 
@@ -520,7 +581,7 @@ const seasonTeamIds =
 
       [
   lifecycleMatches,
-  seasonReports,
+  withdrawalProjection,
   seasonId,
   competitionId,
   seasonTeamIds,
@@ -542,7 +603,8 @@ const seasonTeamIds =
       seasonId ||
     loadedReportsSeasonId !==
       seasonId ||
-    seasonTeamsLoading
+    seasonTeamsLoading ||
+    (!withdrawalError && withdrawalState?.seasonId !== seasonId)
   );
 
   /*
@@ -555,10 +617,10 @@ const seasonTeamIds =
     standings,
 
     matches:
-      seasonMatches,
+      withdrawalProjection?.matches ?? [],
 
     reports:
-      seasonReports,
+      withdrawalProjection?.reports ?? [],
 
     liveTeamIds,
 
@@ -569,7 +631,9 @@ const seasonTeamIds =
 
     error:
   matchesError || reportsError ||
-  seasonTeamsError,
+  seasonTeamsError || withdrawalError ||
+  (seasonId && withdrawalState?.seasonId === seasonId && !withdrawalProjection
+    ? "Registro ritiri incoerente." : null),
   };
 }
 

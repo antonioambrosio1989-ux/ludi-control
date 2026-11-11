@@ -123,6 +123,40 @@ function calculate(input: WithdrawalIndividualInput, excluded: Set<string>, issu
   })).sort((a, b) => a.playerId.localeCompare(b.playerId));
 }
 
+/**
+ * A match void is SPORTING only: its yellow and red cards remain valid.
+ * Augment the after-projection with original published disciplinary events,
+ * without recreating any appearances, goals, assists, votes or MVPs.
+ */
+function carryOverDiscipline(
+  totals: WithdrawalPlayerTotals[],
+  reports: CloudMatchReport[],
+  excluded: Set<string>,
+  issues: string[],
+): void {
+  const byId = new Map(totals.map(total => [total.playerId, total]));
+  const seen = new Set<string>();
+  for (const report of reports) {
+    const matchId = String(report.matchId);
+    if (!excluded.has(matchId) || report.status !== "published") continue;
+    if (seen.has(matchId)) { issues.push(`Tabellino annullato duplicato: ${matchId}.`); continue; }
+    seen.add(matchId);
+    for (const performance of Object.values(report.data.performances ?? {})) {
+      const total = byId.get(String(performance.playerId));
+      if (!total) continue;
+      for (const value of [performance.yellowCards, performance.redCards, performance.directRedCards]) {
+        if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+          issues.push(`Cartellini non verificabili nel tabellino ${matchId}.`);
+          continue;
+        }
+      }
+      total.yellowCards += performance.yellowCards ?? 0;
+      total.redCards += performance.redCards ?? 0;
+      total.directRedCards += performance.directRedCards ?? 0;
+    }
+  }
+}
+
 /** Pure projection: before/after cancellation of provided match IDs. */
 export function buildWithdrawalIndividualProjection(input: WithdrawalIndividualInput): WithdrawalIndividualProjection {
   if (!input.seasonId.trim()) throw new Error("Stagione obbligatoria.");
@@ -132,5 +166,6 @@ export function buildWithdrawalIndividualProjection(input: WithdrawalIndividualI
   for (const id of excluded) if (!known.has(id)) issues.push(`Partita da annullare non presente nella Regular Season: ${id}.`);
   const before = calculate(input, new Set(), issues);
   const after = calculate(input, excluded, issues);
+  carryOverDiscipline(after, input.reports, excluded, issues);
   return { before, after, excludedMatchIds: [...excluded].sort(), issues: [...new Set(issues)], safeToApply: false };
 }

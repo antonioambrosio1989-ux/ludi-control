@@ -6,6 +6,7 @@ import { getWithdrawalPublishedInputs } from "./WithdrawalPublishedBoundary";
 import { calculateStandings } from "@/src/services/standings/StandingsCalculator";
 import { buildStandingsMovementMap } from "@/src/services/standings/StandingsMovement";
 import { calculateFirebasePlayerStats } from "@/src/services/stats/FirebasePlayerStatsCalculator";
+import { preservedDisciplineForPlayer } from "@/src/services/withdrawal/WithdrawalPreservedDiscipline";
 import type { CloudMatchReport } from "@/src/services/match/FirebaseMatchReportRepository";
 import type { CloudFinalStageMatchReport } from "@/src/services/final-stage/FirebaseFinalStageMatchReportRepository";
 import type { FinalStageMatch } from "@/src/types/FinalStageMatch";
@@ -82,6 +83,8 @@ export const getPublicSeasonData = unstable_cache(
     return {
       matches,
       publishedReports,
+      originalPublishedReports: rawPublishedReports,
+      excludedSportingMatchIds: rawMatches.filter(m => !matches.some(current => current.id === m.id)).map(m => m.id),
       finalStageMatches,
       finalStageReports,
       teams,
@@ -202,15 +205,24 @@ export async function getPublicPlayerSummary(
   playerId: string,
 ) {
   const data = await getPublicSeasonData(seasonId);
+  const sporting = calculateFirebasePlayerStats({
+    playerId,
+    matches: data.matches,
+    reports: data.publishedReports,
+    teams: data.teams,
+    finalStageMatches: data.finalStageMatches,
+    finalStageReports: data.finalStageReports,
+  }).stats;
+  const preserved = preservedDisciplineForPlayer(
+    String(playerId),
+    data.originalPublishedReports,
+    new Set(data.excludedSportingMatchIds),
+  );
   return {
-    ...calculateFirebasePlayerStats({
-      playerId,
-      matches: data.matches,
-      reports: data.publishedReports,
-      teams: data.teams,
-      finalStageMatches: data.finalStageMatches,
-      finalStageReports: data.finalStageReports,
-    }).stats,
+    ...sporting,
+    yellowCards: sporting.yellowCards + preserved.yellowCards,
+    redCards: sporting.redCards + preserved.redCards,
+    directRedCards: sporting.directRedCards + preserved.directRedCards,
     computedAt: data.computedAt,
   };
 }

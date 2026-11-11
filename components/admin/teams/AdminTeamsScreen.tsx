@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import Image from "next/image";
+import Link from "next/link";
 
 import TeamLogoUploader from "@/components/admin/teams/TeamLogoUploader";
 import TeamPhotoUploader from "@/components/admin/teams/TeamPhotoUploader";
@@ -1462,6 +1463,14 @@ setTeamPhotoUrl(
     </button>
   )}
 </div>
+                {currentSeason && entry?.status === "active" && (
+                  <Link
+                    href={`/admin/ritiri?teamId=${encodeURIComponent(String(team.id))}`}
+                    className="mt-2 block rounded-[12px] border border-amber-400 bg-amber-50 px-3 py-3 text-center text-[10px] font-black uppercase text-amber-900"
+                  >
+                    Ritiro squadra
+                  </Link>
+                )}
               </article>
             ),
           )}

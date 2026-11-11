@@ -1,9 +1,8 @@
 /**
- * 11F-23: limited first-leg official void_all activation.
- * Preserves original match/report documents. Refuses any possible disciplinary
- * repercussions until the chronological disciplinary replay is production-ready.
- * Important: this is NOT full first-leg support for seasons with affected cards
- * or suspensions. All verification and writes happen in one transaction.
+ * Official first-leg / single-round-robin withdrawal. Voids sporting outcomes
+ * in verified public projections but leaves historical disciplinary documents
+ * and original match reports intact. Future unimported weeks stay excluded
+ * dynamically by the server-side withdrawal register.
  */
 import { createHash } from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
@@ -16,27 +15,6 @@ const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const id = (v: unknown) => String(v ?? '').trim();
 const rs = (m: Record<string, unknown>) => m.matchType === undefined || m.matchType === 'regularSeason';
 const isInt = (x: unknown) => typeof x === 'number' && Number.isSafeInteger(x) && x >= 0;
-
-/** For disciplinary safety, the absence of cards must be demonstrable, not assumed. */
-function assertNoCards(report: Record<string, unknown>, matchId: string) {
-  const data = report.data;
-  if (!data || typeof data !== 'object' || Array.isArray(data))
-    throw new Error(`Tabellino ${matchId}: prestazioni non certificabili.`);
-  const performances = (data as Record<string, unknown>).performances;
-  if (!performances || typeof performances !== 'object' || Array.isArray(performances))
-    throw new Error(`Tabellino ${matchId}: prestazioni mancanti.`);
-  for (const perf of Object.values(performances as Record<string, unknown>)) {
-    if (!perf || typeof perf !== 'object' || Array.isArray(perf))
-      throw new Error(`Tabellino ${matchId}: prestazione non valida.`);
-    const p = perf as Record<string, unknown>;
-    if (!validId(p.playerId)) throw new Error(`Tabellino ${matchId}: ID giocatore non valido.`);
-    for (const key of ['yellowCards', 'directRedCards', 'redCards']) {
-      const value = p[key] ?? 0;
-      if (!isInt(value) || Number(value) !== 0)
-        throw new Error('Girone di andata: gara con cartellini. Richiesta riconciliazione disciplinare; attivazione bloccata.');
-    }
-  }
-}
 
 export async function activateOfficialFirstLegWithdrawal(db: Firestore, input: Input) {
   if (![input.seasonId, input.teamId, input.adminUid].every(validId) ||
@@ -76,21 +54,24 @@ export async function activateOfficialFirstLegWithdrawal(db: Firestore, input: I
       if (other.id !== input.teamId && other.data().state === 'active')
         throw new Error('Ritiri multipli richiedono una riconciliazione dedicata.');
     }
-    // Existing suspensions may have been served in voided matches, or may reflect
-    // yellow cycles not provable from the available reports. Fail closed.
-    if (!suspensions.empty || !records.empty)
-      throw new Error('Presente uno storico disciplinare: necessaria riconciliazione cronologica. Attivazione bloccata.');
+    // Sporting void does not cancel disciplinary events. Historical disciplinary
+    // records and suspensions remain fully authoritative and are NEVER modified.
+    // Read within the transaction to record the preservation scope in the audit.
+    const preservedDisciplinaryRecordIds = records.docs.map(doc => doc.id).sort();
+    const preservedSuspensionIds = suspensions.docs.map(doc => doc.id).sort();
 
     const all: MatchData[] = matches.docs.map(doc => ({ id: doc.id, data: doc.data() }));
     const affected = all.filter(m => rs(m.data) && m.data.seasonId === input.seasonId &&
       (id(m.data.homeTeamId) === input.teamId || id(m.data.awayTeamId) === input.teamId))
       .sort((a, b) => Number(a.data.matchweek) - Number(b.data.matchweek));
-    if (affected.length !== config.totalMatchweeks)
-      throw new Error('Calendario stagionale incompleto. Importare tutte le giornate.');
+    if (affected.length === 0) throw new Error('Nessuna gara della squadra importata.');
     const reportList = reports.docs.map(doc => ({ id: doc.id, data: doc.data() }));
     const entries: Array<{matchId:string;matchweek:number;opponentTeamId:string;effect:'void';reportIds:string[]}> = [];
     for (let week = 1; week <= config.totalMatchweeks; week++) {
       const atWeek = affected.filter(m => m.data.matchweek === week);
+      // The future calendar can be imported incrementally. Past weeks must
+      // always be verifiable and future imported fixtures must remain intact.
+      if (atWeek.length === 0 && week >= input.expectedMatchweek) continue;
       if (atWeek.length !== 1) throw new Error(`Calendario duplicato o mancante alla giornata ${week}.`);
       const match = atWeek[0];
       const opponent = id(match.data.homeTeamId) === input.teamId ? id(match.data.awayTeamId) : id(match.data.homeTeamId);
@@ -104,7 +85,8 @@ export async function activateOfficialFirstLegWithdrawal(db: Firestore, input: I
         if (!isInt(match.data.homeScore) || !isInt(match.data.awayScore) ||
             payload?.homeScore !== match.data.homeScore || payload?.awayScore !== match.data.awayScore)
           throw new Error(`Giornata ${week}: risultato e tabellino non coincidono.`);
-        assertNoCards(related[0].data, match.id);
+        // Preserve cards and suspensions in their original published sources;
+        // only sporting inputs are filtered by the official withdrawal reader.
       } else if (match.data.status !== 'scheduled' || match.data.homeScore != null ||
                  match.data.awayScore != null || related.length !== 0) {
         throw new Error(`Giornata ${week}: gara futura non integra.`);
@@ -131,6 +113,8 @@ export async function activateOfficialFirstLegWithdrawal(db: Firestore, input: I
       affectedReportIds:entries.flatMap(e=>e.reportIds),
       originalRegistration:{state:draft.state,effectsApplied:draft.effectsApplied},
       disciplineChanges:[],suspensionChanges:[],
+      preservedDisciplinaryRecordIds,preservedSuspensionIds,
+      preservedDisciplinePolicy:'retain_original',
       createdBy:input.adminUid,createdAt:now});
     return {status:'applied' as const,commitId,fixtureCount:entries.length,
       policy:'void_all' as const};

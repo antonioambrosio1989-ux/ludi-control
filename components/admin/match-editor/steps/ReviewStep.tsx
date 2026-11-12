@@ -214,16 +214,7 @@ const hasValidPenaltyResult =
     !playersError &&
     hasValidExtraTimeState &&
     hasValidPenaltyResult &&
-    (
-      data.status === "postponed" ||
-      (
-        errors.length === 0 &&
-        (
-          data.status === "walkover" ||
-          Boolean(data.mvpPhotoUrl)
-        )
-     )
- );
+    (data.status === "postponed" || errors.length === 0);
 
 const homeGoals = data.goals.filter(
   (goal) =>
@@ -477,7 +468,7 @@ const awayRedCards =
 
       {!data.mvpPhotoUrl && (
         <p className="mt-3 text-center text-xs font-bold text-red-600">
-          Carica la foto prima di pubblicare.
+          Foto non caricata. Puoi pubblicare il tabellino e aggiungerla successivamente.
         </p>
       )}
     </section>

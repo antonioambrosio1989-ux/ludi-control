@@ -545,6 +545,30 @@ export const FirebaseMatchReportRepository = {
     return snapshot.data() as CloudMatchReport;
   },
 
+  /** Aggiorna solo la fotografia MVP di un tabellino già pubblicato. */
+  async setPublishedMvpPhoto(matchId: string, photoUrl: string): Promise<void> {
+    const normalizedPhotoUrl = photoUrl.trim();
+    if (!/^https:\/\//i.test(normalizedPhotoUrl)) {
+      throw new Error("La foto MVP deve avere un URL HTTPS valido.");
+    }
+    await getWritableMatchSeasonId(matchId);
+    const reference = getReportRef(matchId);
+    await runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists() || snapshot.data().status !== "published") {
+        throw new Error("Il tabellino deve essere pubblicato prima di caricare la foto MVP.");
+      }
+      if (!snapshot.data().data?.mvpPlayerId) {
+        throw new Error("Il tabellino non ha un MVP selezionato.");
+      }
+      // Nested update: non sovrascrive voti, gol, stato e timestamp di pubblicazione.
+      transaction.update(reference, {
+        "data.mvpPhotoUrl": normalizedPhotoUrl,
+        updatedAt: serverTimestamp(),
+      });
+    });
+  },
+
   async saveDraft(data: MatchWizardData): Promise<void> {
     const seasonId = await getWritableMatchSeasonId(data.matchId);
     const reference = getReportRef(data.matchId);

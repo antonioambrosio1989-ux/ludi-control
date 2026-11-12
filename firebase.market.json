@@ -1,0 +1,23 @@
+{
+  "functions": [
+    {
+      "source": "ludi-market",
+      "codebase": "ludi-market",
+      "disallowLegacyRuntimeConfig": true,
+      "ignore": [
+        "node_modules",
+        "**/node_modules/**",
+        ".git",
+        ".runtimeconfig.json",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local",
+        "**/*.bak",
+        "**/.env*"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    }
+  ]
+}

@@ -1,9 +1,15 @@
 "use client";
 
+import { FirebaseSeasonPlayerRepository } from "@/src/services/player/FirebaseSeasonPlayerRepository";
+
+
+
 import Image from "next/image";
 import Link from "next/link";
 
 import AppShell from "@/components/ui/AppShell";
+import ChampionshipMarketPanel from "./ChampionshipMarketPanel";
+import { isMarketEligible } from "@/src/services/transfer/MarketSeasonPolicy";
 
 import SeasonRosterPlayerForm from "../players/SeasonRosterPlayerForm";
 
@@ -14,9 +20,35 @@ import {
   useSeasonRosterData,
 } from "@/src/hooks/useSeasonRosterData";
 
+async function exportSeasonPlayersAudit14F() {
+  const entries = await FirebaseSeasonPlayerRepository.getAll();
+  const exportData = entries.map((entry) => ({
+    id: entry.id,
+    seasonId: entry.seasonId,
+    playerId: entry.playerId,
+    teamId: entry.teamId,
+    status: entry.status,
+    transferHistory:
+  "transferHistory" in entry && Array.isArray(entry.transferHistory)
+    ? entry.transferHistory
+    : [],
+  }));
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "seasonPlayers-export.json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 export default function SeasonRosterScreen() {
   const {
     currentSeason,
+    refreshSeasonPlayers,
 
     players,
 
@@ -28,6 +60,7 @@ export default function SeasonRosterScreen() {
     effectiveSelectedTeam,
 
     selectedTeamRoster,
+    seasonPlayers,
     availablePlayers,
     rosterByRole,
 
@@ -218,6 +251,18 @@ export default function SeasonRosterScreen() {
           </p>
         </div>
 
+        <button
+          type="button"
+          onClick={() => {
+            void exportSeasonPlayersAudit14F().catch((error: unknown) => {
+              console.error("Esportazione rose non riuscita:", error);
+              window.alert("Impossibile esportare le rose: controlla la console.");
+            });
+          }}
+          className="rounded-full border border-[#06142E]/15 bg-white px-4 py-2 text-xs font-black text-[#06142E]"
+        >
+          Esporta rose (audit)
+        </button>
         {currentSeason ? (
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full border border-[#06142E]/10 bg-white px-4 py-2 text-[10px] font-black uppercase text-[#06142E]/45">
@@ -239,6 +284,19 @@ export default function SeasonRosterScreen() {
         />
       ) : (
         <>
+      {!isLoading && currentSeason && isMarketEligible(currentSeason) && currentSeason.marketWindow && (
+        <ChampionshipMarketPanel
+          seasonId={currentSeason.id}
+          seasonName={currentSeason.name}
+          seasonStartYear={currentSeason.startYear}
+          marketWindow={currentSeason.marketWindow}
+          teams={participatingTeams}
+          players={players}
+          roster={seasonPlayers}
+          onCompleted={refreshSeasonPlayers}
+        />
+      )}
+
           <section className="mb-5 rounded-[20px] bg-[#06142E] p-5 text-white shadow-[0_14px_34px_rgba(6,20,46,0.14)] sm:p-6">
             <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/45">
               Stagione corrente

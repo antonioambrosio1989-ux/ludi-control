@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { assertMarketOpen } from '../src/marketPolicy.ts';
+const today = '2027-01-12';
+const base = {status:'active',regularSeasonClosed:false,competitionId:'premier-league',format:'double_round_robin',firstReturnMatchweek:12,marketWindow:{startDate:'2027-01-01',endDate:'2027-01-31'}};
+test('A/R abilitato indipendentemente dal nome della competizione',()=> assert.doesNotThrow(()=>assertMarketOpen(base,today,today)));
+test('sola andata non ammette mercato',()=> assert.throws(()=>assertMarketOpen({...base,format:'single_round_robin'},today,today)));
+test('formato assente fallisce chiuso',()=> assert.throws(()=>assertMarketOpen({...base,format:undefined},today,today)));
+test('mercato chiuso',()=> assert.throws(()=>assertMarketOpen(base,'2027-02-01','2027-02-01')));
+test('data retroattiva rifiutata',()=> assert.throws(()=>assertMarketOpen(base,'2027-01-11',today)));
+test('stagione completata rifiutata',()=> assert.throws(()=>assertMarketOpen({...base,status:'completed'},today,today)));
+test('finestra non configurata rifiutata',()=> assert.throws(()=>assertMarketOpen({...base,marketWindow:undefined},today,today)));
+test('data inesistente rifiutata',()=> assert.throws(()=>assertMarketOpen(base,'2027-02-30','2027-02-30')));

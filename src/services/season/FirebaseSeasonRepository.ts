@@ -12,9 +12,11 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/src/lib/firebase";
+import { parseMarketConfiguration, validateNewSeasonMarketConfiguration } from "@/src/services/transfer/MarketSeasonPolicy";
 
 import type {
   CreateSeasonInput,
+  SeasonMarketConfiguration,
   Season,
 } from "@/src/types/Season";
 
@@ -54,6 +56,7 @@ function mapSeason(
 
   return {
     id: documentId,
+    ...parseMarketConfiguration(data),
 
     competitionId:
   typeof data.competitionId ===
@@ -360,6 +363,7 @@ const id =
     }
 
     const season: Season = {
+      ...validateNewSeasonMarketConfiguration(input),
       id,
       competitionId,
       name,
@@ -1108,6 +1112,7 @@ async closeFinalStage(
     }
 
     const season: Season = {
+      ...validateNewSeasonMarketConfiguration(input),
       id,
       competitionId,
       name,
@@ -1154,6 +1159,39 @@ async closeFinalStage(
    * l'id romperebbe tali riferimenti.
    * ============================================================
    */
+
+  /** Configura il formato solo in bozza o alla prima configurazione di una stagione attiva. */
+  async updateMarketConfiguration(
+    seasonId: string,
+    config: SeasonMarketConfiguration,
+  ): Promise<void> {
+    const normalizedSeasonId = seasonId.trim();
+    if (!normalizedSeasonId || normalizedSeasonId.includes("/")) throw new Error("Stagione non valida.");
+    const validated = validateNewSeasonMarketConfiguration(config);
+    if (!validated.format) throw new Error("Seleziona un formato di stagione.");
+    if (validated.format === "double_round_robin" && !validated.marketWindow) {
+      throw new Error("Per abilitare il mercato inserisci apertura e chiusura.");
+    }
+    const ref = doc(db, SEASONS_COLLECTION, normalizedSeasonId);
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists()) throw new Error("Stagione non trovata.");
+      const data = snap.data();
+      if (data.status === "completed") throw new Error("Stagione conclusa: configurazione bloccata.");
+      if (data.status === "active" && data.format !== undefined) {
+        throw new Error("Il formato di una stagione attiva gia configurata non puo essere modificato.");
+      }
+      if (data.status !== "draft" && data.status !== "active") {
+        throw new Error("Stato della stagione non valido.");
+      }
+      tx.update(ref, {
+        format: validated.format,
+        firstReturnMatchweek: validated.firstReturnMatchweek ?? null,
+        marketWindow: validated.marketWindow ?? null,
+        updatedAt: serverTimestamp(),
+      });
+    });
+  },
 
   async updateMetadata({
     seasonId,

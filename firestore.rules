@@ -582,8 +582,25 @@ service cloud.firestore {
       allow read:
         if true;
 
-      allow create, update, delete:
-        if isAdmin();
+      // Iscrizioni e registro vengono creati soltanto dall'API Admin SDK.
+      // Nessun client, neppure amministratore, può creare nuove iscrizioni.
+      allow create:
+        if false;
+
+      // Un trasferimento modifica campi riservati esclusivamente alla
+      // Cloud Function che utilizza Firebase Admin SDK.
+      allow update:
+        if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'role', 'shirtNumber', 'status', 'updatedAt'
+        ])
+        && request.resource.data.status in ['active', 'inactive']
+        && resource.data.status in ['active', 'inactive'];
+
+      // Impedisce di cancellare e ricreare una iscrizione per aggirare
+      // il blocco del trasferimento. Cancellazioni: soltanto Admin SDK.
+      allow delete:
+        if false;
     }
 
     /*

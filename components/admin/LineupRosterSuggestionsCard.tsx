@@ -6,6 +6,7 @@ import {
 } from "react";
 
 import {
+  deleteDoc,
   collection,
   doc,
   getDoc,
@@ -333,6 +334,34 @@ export default function LineupRosterSuggestionsCard({
     }
   }
 
+  async function dismissSuggestion(
+    suggestion: PendingRosterSuggestion,
+  ) {
+    const confirmed = window.confirm(
+      `Vuoi eliminare la segnalazione di ${suggestion.name}? La rosa e la formazione non saranno modificate.`,
+    );
+
+    if (!confirmed) return;
+
+    setBusyId(suggestion.id);
+    setErrorMessage(null);
+
+    try {
+      await deleteDoc(
+        doc(db, "lineupRosterSuggestions", suggestion.id),
+      );
+    } catch (error) {
+      console.error("Errore eliminazione segnalazione:", error);
+
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Impossibile eliminare la segnalazione.",
+      );
+    } finally {
+      setBusyId(undefined);
+    }
+  }
   async function addToRoster(
     suggestion:
       PendingRosterSuggestion,
@@ -729,6 +758,17 @@ export default function LineupRosterSuggestionsCard({
                     {isBusy
                       ? "Salvataggio..."
                       : "Aggiungi alla rosa"}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => {
+                      void dismissSuggestion(suggestion);
+                    }}
+                    className="col-span-2 min-h-11 rounded-[10px] border border-red-300 bg-red-50 px-3 text-[10px] font-black uppercase text-red-700 disabled:opacity-40"
+                  >
+                    Elimina questo giocatore
                   </button>
                 </div>
               </article>

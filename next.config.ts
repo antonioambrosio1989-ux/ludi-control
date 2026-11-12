@@ -63,7 +63,7 @@ const contentSecurityPolicy = [
    * ==========================================================
    */
 
-  `connect-src 'self' ${process.env.NODE_ENV === "development" ? "http://127.0.0.1:8080 http://127.0.0.1:9099 ws://localhost:* ws://127.0.0.1:*" : ""} https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://api.stripe.com https://*.ingest.uploadthing.com https://*.ufs.sh https://utfs.io https://www.instagram.com`,
+  `connect-src 'self' ${process.env.NODE_ENV === "development" ? "http://127.0.0.1:8080 http://127.0.0.1:9099 ws://localhost:* ws://127.0.0.1:*" : ""} https://*.googleapis.com https://*.cloudfunctions.net https://*.firebaseio.com wss://*.firebaseio.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://api.stripe.com https://*.ingest.uploadthing.com https://*.ufs.sh https://utfs.io https://www.instagram.com`,
 
   /*
    * ==========================================================

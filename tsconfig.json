@@ -33,6 +33,6 @@
   "exclude": [
     "node_modules",
     "functions",
-    "ludi-market/**"
+    "ludi-market"
   ]
 }

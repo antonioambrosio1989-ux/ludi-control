@@ -10,7 +10,7 @@ const required=(v:unknown,n:string)=>{if(typeof v!=="string" || !v.trim() || v.i
 /** Nome callable legacy conservato per compatibilita client; opera su ogni stagione A/R. */
 export const previewChampionshipTransfer=onCall({enforceAppCheck:false,maxInstances:10},async(request)=>{
  const uid=request.auth?.uid;if(!uid) throw new HttpsError("unauthenticated","Accesso richiesto.");
- const db=getFirestore();const admin=await db.doc(`admins/${uid}`).get();
+ const db=getFirestore("default");const admin=await db.doc(`admins/${uid}`).get();
  if(!admin.exists || admin.get("active")!==true) throw new HttpsError("permission-denied","Amministratore non autorizzato.");
  const data=request.data as Record<string,unknown>|null;
  const seasonId=required(data?.seasonId,"seasonId"),seasonPlayerId=required(data?.seasonPlayerId,"seasonPlayerId"),toTeamId=required(data?.toTeamId,"toTeamId");

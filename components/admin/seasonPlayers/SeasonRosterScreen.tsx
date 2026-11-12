@@ -296,6 +296,19 @@ export default function SeasonRosterScreen() {
           onCompleted={refreshSeasonPlayers}
         />
       )}
+      {!isLoading && (!isMarketEligible(currentSeason) || !currentSeason.marketWindow) && (
+        <section className="mb-5 rounded-[20px] border border-[#06142E]/10 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-black text-[#06142E]">Mercato Ludi</h2>
+          <p className="mt-2 text-sm text-[#06142E]/65">
+            Mercato non configurato per questa stagione.
+            Per abilitarne la visualizzazione completa occorrono un formato
+            andata e ritorno e una finestra di mercato valida.
+          </p>
+          <p className="mt-3 text-xs font-bold text-amber-800">
+            Nessun trasferimento disponibile.
+          </p>
+        </section>
+      )}
 
           <section className="mb-5 rounded-[20px] bg-[#06142E] p-5 text-white shadow-[0_14px_34px_rgba(6,20,46,0.14)] sm:p-6">
             <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/45">

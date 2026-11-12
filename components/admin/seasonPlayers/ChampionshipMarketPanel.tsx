@@ -64,7 +64,40 @@ export default function ChampionshipMarketPanel({
     preview.data.toTeamId === toTeamId);
 
   // The production UI remains disabled until security review and deployment.
-  if (!emulatorOnly) return null;
+  if (!emulatorOnly) {
+    const activePlayers = roster.filter(p => p.status === "active").length;
+
+    return (
+      <section className="mb-5 rounded-[20px] border border-[#06142E]/10 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-black text-[#06142E]">Mercato Ludi</h2>
+          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">
+            Modalità consultiva
+          </span>
+        </div>
+        <p className="mt-2 text-sm text-[#06142E]/65">
+          {seasonName} — Trasferimenti non ancora abilitati.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl bg-slate-50 p-3">
+            <p className="text-xs text-slate-500">Giocatori attivi</p>
+            <p className="text-xl font-black">{activePlayers}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-3">
+            <p className="text-xs text-slate-500">Squadre iscritte</p>
+            <p className="text-xl font-black">{teams.length}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-3">
+            <p className="text-xs text-slate-500">Finestra mercato</p>
+            <p className="text-sm font-bold">{marketWindow.startDate} / {marketWindow.endDate}</p>
+          </div>
+        </div>
+        <p className="mt-4 text-sm font-medium text-amber-800">
+          Anteprima consultiva: nessun trasferimento può essere confermato da questa schermata.
+        </p>
+      </section>
+    );
+  }
 
   const fn = getFunctions(app, "europe-west1");
   const reset = () => { setPreview(null); setMessage(""); setSuccess(false); };

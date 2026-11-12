@@ -63,21 +63,85 @@ export default function ChampionshipMarketPanel({
     preview.data.fromTeamId === selected.teamId &&
     preview.data.toTeamId === toTeamId);
 
-  // The production UI remains disabled until security review and deployment.
+
+  // Anteprima non dimostrativa: SOLO verifica, nessuna conferma.
   if (!emulatorOnly) {
-    const activePlayers = roster.filter(p => p.status === "active").length;
+    const activePlayers = eligible.length;
+
+    async function verifyReadOnly() {
+      if (!selected || !toTeamId || !validDate || busy) return;
+
+      setBusy(true);
+      setPreview(null);
+      setMessage("");
+      setSuccess(false);
+
+      try {
+        const functions = getFunctions(app, "europe-west1");
+
+        if (
+          process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID !== "ludi-os" ||
+          functions.app.options.projectId !== "ludi-os"
+        ) {
+          throw new Error("Verifica disponibile solo per il progetto Ludi OS.");
+        }
+
+        const call = httpsCallable<
+          {
+            seasonId: string;
+            seasonPlayerId: string;
+            toTeamId: string;
+            effectiveDate: string;
+          },
+          Preview
+        >(functions, "previewChampionshipTransfer");
+
+        const result = await call({
+          seasonId,
+          seasonPlayerId: selected.id,
+          toTeamId,
+          effectiveDate,
+        });
+
+        const data = result.data;
+
+        if (
+          data.seasonId !== seasonId ||
+          data.seasonPlayerId !== selected.id ||
+          data.playerId !== selected.playerId ||
+          data.fromTeamId !== selected.teamId ||
+          data.toTeamId !== toTeamId ||
+          data.allowedToWrite !== false
+        ) {
+          throw new Error("Risposta di anteprima non coerente o non sicura.");
+        }
+
+        setPreview({ data, signature });
+        setMessage("Verifica completata: nessun dato modificato.");
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Verifica del trasferimento non riuscita."
+        );
+      } finally {
+        setBusy(false);
+      }
+    }
 
     return (
       <section className="mb-5 rounded-[20px] border border-[#06142E]/10 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-black text-[#06142E]">Mercato Ludi</h2>
           <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">
-            Modalità consultiva
+            Solo anteprima
           </span>
         </div>
+
         <p className="mt-2 text-sm text-[#06142E]/65">
-          {seasonName} — Trasferimenti non ancora abilitati.
+          {seasonName} — Nessun trasferimento può essere confermato.
         </p>
+
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl bg-slate-50 p-3">
             <p className="text-xs text-slate-500">Giocatori attivi</p>
@@ -89,12 +153,107 @@ export default function ChampionshipMarketPanel({
           </div>
           <div className="rounded-xl bg-slate-50 p-3">
             <p className="text-xs text-slate-500">Finestra mercato</p>
-            <p className="text-sm font-bold">{marketWindow.startDate} / {marketWindow.endDate}</p>
+            <p className="text-sm font-bold">
+              {marketWindow.startDate} / {marketWindow.endDate}
+            </p>
           </div>
         </div>
-        <p className="mt-4 text-sm font-medium text-amber-800">
-          Anteprima consultiva: nessun trasferimento può essere confermato da questa schermata.
+
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
+          <label className="text-xs font-bold text-[#06142E]">
+            Giocatore
+            <select
+              className="ludi-input mt-2 w-full"
+              value={entryId}
+              disabled={busy}
+              onChange={event => {
+                setEntryId(event.target.value);
+                setToTeamId("");
+                setPreview(null);
+                setMessage("");
+              }}
+            >
+              <option value="">Seleziona giocatore</option>
+              {eligible.map(entry => (
+                <option key={entry.id} value={entry.id}>
+                  {playerName(entry.playerId)} ({teamName(entry.teamId)})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-xs font-bold text-[#06142E]">
+            Squadra di destinazione
+            <select
+              className="ludi-input mt-2 w-full"
+              value={toTeamId}
+              disabled={!selected || busy}
+              onChange={event => {
+                setToTeamId(event.target.value);
+                setPreview(null);
+                setMessage("");
+              }}
+            >
+              <option value="">Seleziona squadra</option>
+              {destinationTeams.map(team => (
+                <option key={team.id} value={team.id}>
+                  {teamName(team.id)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-xs font-bold text-[#06142E]">
+            Data effettiva
+            <input
+              className="ludi-input mt-2 w-full"
+              type="date"
+              min={marketWindow.startDate}
+              max={marketWindow.endDate}
+              value={effectiveDate}
+              disabled={busy}
+              onChange={event => {
+                setEffectiveDate(event.target.value);
+                setPreview(null);
+                setMessage("");
+              }}
+            />
+          </label>
+        </div>
+
+        <p className="mt-3 text-xs font-medium text-amber-800">
+          Il server può rifiutare la verifica prima dell'apertura
+          della finestra di mercato.
         </p>
+
+        <button
+          type="button"
+          className="ludi-button-primary mt-4"
+          disabled={!selected || !toTeamId || !validDate || busy}
+          onClick={() => { void verifyReadOnly(); }}
+        >
+          {busy ? "Verifica in corso..." : "Verifica trasferimento"}
+        </button>
+
+        {verified && selected && (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+            <p className="font-bold">Anteprima verificata dal server</p>
+            <p className="mt-1">
+              {playerName(selected.playerId)}:
+              {" "}{teamName(selected.teamId)}
+              {" → "}{teamName(toTeamId)}
+            </p>
+            <p className="mt-2 font-bold text-amber-800">
+              Conferma trasferimento disabilitata.
+            </p>
+          </div>
+        )}
+
+        {message && (
+          <p role="status" className="mt-3 text-sm text-[#06142E]">
+            {message}
+          </p>
+        )}
       </section>
     );
   }

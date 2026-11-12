@@ -17,7 +17,7 @@ export const confirmChampionshipTransfer=onCall({region:"europe-west1",maxInstan
  const seasonId=id(data?.seasonId,"seasonId");const seasonPlayerId=id(data?.seasonPlayerId,"seasonPlayerId");
  const toTeamId=id(data?.toTeamId,"toTeamId");const effectiveDate=data?.effectiveDate;
  if(!isDate(effectiveDate)) throw new HttpsError("invalid-argument","Data effettiva non valida.");
- const db=getFirestore("default");const adminRef=db.doc(`admins/${uid}`),seasonRef=db.doc(`seasons/${seasonId}`),rosterRef=db.doc(`seasonPlayers/${seasonPlayerId}`);
+ const db=getFirestore();const adminRef=db.doc(`admins/${uid}`),seasonRef=db.doc(`seasons/${seasonId}`),rosterRef=db.doc(`seasonPlayers/${seasonPlayerId}`);
  // Fail closed in production. Never infer successful write from a preview.
  if(!writesAllowed){return {saved:false,reason:"Conferma disabilitata: collaudo non completato."};}
  const transferRef=db.collection("seasonTransfers").doc();

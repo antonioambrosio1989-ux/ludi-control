@@ -129,3 +129,73 @@ export function isTemporaryGoalkeeperId(
     null
   );
 }
+
+
+/**
+ * Preselezione presenze dal documento matchLineups.
+ * Si importano soltanto le formazioni pubblicate; gli ospiti generici
+ * non sono convertiti impropriamente in portieri. Il portiere guest
+ * designato viene invece rappresentato con l'ID temporaneo già
+ * compreso dall'editor del tabellino.
+ * Non modifica mai la rosa stagionale né Firestore.
+ */
+export function buildWhatsAppLineupPrefill(value: unknown): {
+  homePresentPlayerIds: string[];
+  awayPresentPlayerIds: string[];
+} {
+  const record = (input: unknown): Record<string, unknown> =>
+    input && typeof input === "object" && !Array.isArray(input)
+      ? input as Record<string, unknown>
+      : {};
+  const text = (input: unknown): string =>
+    typeof input === "string" ? input.trim() : "";
+
+  const parseSide = (sideValue: unknown): string[] => {
+    const side = record(sideValue);
+    if (side.status !== "published") return [];
+
+    const ids = Array.isArray(side.playerIds)
+      ? side.playerIds.map(text).filter(Boolean)
+      : [];
+    const goalkeeper = record(side.goalkeeper);
+    const selectedGoalkeeperId =
+      goalkeeper.kind === "guest"
+        ? text(goalkeeper.guestPlayerId)
+        : text(side.goalkeeperId);
+
+    if (selectedGoalkeeperId && Array.isArray(side.guestPlayers)) {
+      const guest = side.guestPlayers
+        .map(record)
+        .find((candidate) => text(candidate.id) === selectedGoalkeeperId);
+      if (guest) {
+        let firstName = text(guest.firstName);
+        let lastName = text(guest.lastName);
+        // Legacy: nome WhatsApp non sempre separato in firstName/lastName.
+        // Formato del portiere provvisorio: COGNOME NOME.
+        if (!firstName || !lastName) {
+          const parts = text(guest.name).split(/\s+/).filter(Boolean);
+          if (parts.length >= 2) {
+            lastName ||= parts[0];
+            firstName ||= parts.slice(1).join(" ");
+          }
+        }
+        const teamId = text(side.teamId);
+        if (teamId && firstName && lastName) {
+          ids.push(createTemporaryGoalkeeperId({
+            teamId,
+            firstName,
+            lastName,
+          }));
+        }
+      }
+    }
+
+    return [...new Set(ids)];
+  };
+
+  const lineup = record(value);
+  return {
+    homePresentPlayerIds: parseSide(lineup.home),
+    awayPresentPlayerIds: parseSide(lineup.away),
+  };
+}

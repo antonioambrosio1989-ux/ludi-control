@@ -43,6 +43,7 @@ type AdminMatchDisplayStatus =
   | "completed"
   | "live"
   | "finished"
+  | "walkover"
   | "postponed"
   | "cancelled"
   | "waiting"
@@ -133,6 +134,10 @@ if (
     return "finished";
   }
 
+  if (normalizedStatus === "walkover") {
+    return "walkover";
+  }
+
   if (
     normalizedStatus === "played" ||
     normalizedStatus === "completed"
@@ -168,6 +173,12 @@ function getAdminMatchStatusStyle(
 
         className:
           "border border-green-200 bg-green-50 text-green-700",
+      };
+
+    case "walkover":
+      return {
+        label: "Tavolino",
+        className: "border border-amber-200 bg-amber-50 text-amber-700",
       };
 
     case "live":
@@ -466,7 +477,7 @@ const effectiveSelectedMatchweek =
 
   useEffect(() => {
     if (!currentSeasonId) return;
-    return FirebaseMatchReportRepository.subscribePublishedBySeason(
+    return FirebaseMatchReportRepository.subscribeBySeason(
       currentSeasonId,
       (reports) => setPublishedSnapshot({ seasonId: currentSeasonId, reports }),
       (error) => setActionError(error.message),
@@ -2024,12 +2035,12 @@ async function handleCreateMatch() {
                   "away",
                 );
 
-              const displayStatus =
-                getAdminMatchDisplayStatus(
-                  match,
-                );
-
               const publishedReport = publishedReportsByMatchId.get(match.id);
+              const displayStatus =
+                match.status === "walkover" ||
+                publishedReport?.data?.status === "walkover"
+                  ? "walkover"
+                  : getAdminMatchDisplayStatus(match);
               const publishedWithoutPhoto =
                 publishedReport?.status === "published" &&
                 Boolean(publishedReport.data.mvpPlayerId) &&

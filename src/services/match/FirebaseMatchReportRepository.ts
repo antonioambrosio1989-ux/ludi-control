@@ -403,6 +403,18 @@ export const FirebaseMatchReportRepository = {
     });
   },
 
+  // Include bozze e pubblicati per mostrare l'esito a tavolino subito dopo il salvataggio.
+  subscribeBySeason(
+    seasonId: string,
+    onChange: (reports: CloudMatchReport[]) => void,
+    onError?: (error: Error) => void,
+  ): Unsubscribe {
+    return onSnapshot(
+      query(collection(db, COLLECTION_NAME), where("seasonId", "==", seasonId)),
+      (snapshot) => onChange(snapshot.docs.map((entry) => entry.data() as CloudMatchReport)),
+      (error) => onError?.(error),
+    );
+  },
   subscribePublishedBySeason(
     seasonId: string,
 

@@ -8,6 +8,9 @@ import {
 
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/src/lib/firebase";
+import { buildWhatsAppLineupPrefill } from "@/src/services/match/TemporaryMatchPlayer";
 
 import { useTeams } from "@/src/hooks/useTeams";
 import { usePlayers } from "@/src/hooks/usePlayers";
@@ -680,6 +683,39 @@ setFinalStageSeasonMatches(
               matchId,
             }),
           );
+        }
+
+        // Importazione iniziale UNA SOLA VOLTA: nessun report cloud/locale
+        // deve esistere. Non sovrascrivere le bozze o i tabellini pubblicati.
+        if (!localReport) {
+          try {
+            const lineupSnapshot = await getDoc(
+              doc(db, "matchLineups", matchId),
+            );
+            if (isActive && lineupSnapshot.exists()) {
+              const lineup = lineupSnapshot.data();
+              if (
+                !lineup.matchId ||
+                String(lineup.matchId) === String(matchId)
+              ) {
+                const prefill = buildWhatsAppLineupPrefill(lineup);
+                if (
+                  prefill.homePresentPlayerIds.length > 0 ||
+                  prefill.awayPresentPlayerIds.length > 0
+                ) {
+                  setWizardData((currentData) => ({
+                    ...currentData,
+                    homePresentPlayerIds: prefill.homePresentPlayerIds,
+                    awayPresentPlayerIds: prefill.awayPresentPlayerIds,
+                  }));
+                }
+              }
+            }
+          } catch (lineupError) {
+            // L'assenza o la mancata lettura della formazione WhatsApp
+            // non deve impedire la normale compilazione manuale.
+            console.warn("Precompilazione WhatsApp non disponibile:", lineupError);
+          }
         }
 
         setCloudSyncStatus(

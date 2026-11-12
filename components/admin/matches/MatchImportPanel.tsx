@@ -20,6 +20,7 @@ import {
 import { useTeams } from "@/src/hooks/useTeams";
 
 import { FirebaseMatchRepository } from "@/src/services/match/FirebaseMatchRepository";
+import { isDemoAtomicCalendarImportEnabled, submitDemoAtomicCalendarImport } from "@/src/services/withdrawal/WithdrawalDemoCalendarClient";
 
 import type { Match } from "@/src/types/Match";
 
@@ -2257,6 +2258,21 @@ export default function MatchImportPanel({
         return;
       }
 
+      if (isDemoAtomicCalendarImportEnabled()) {
+        // Explicitly gated local emulator only; never fall back to the legacy
+        // client write if the authenticated atomic operation rejects.
+        await submitDemoAtomicCalendarImport({
+          seasonId: targetSeasonId,
+          matchweek: normalizedMatchweek,
+          fixtures: draft.map((row) => ({
+            date: row.date,
+            time: row.time,
+            venue: "Centro Sportivo Ludi",
+            homeTeamId: row.homeTeamId,
+            awayTeamId: row.awayTeamId,
+          })),
+        });
+      } else {
       await FirebaseMatchRepository.createMany(
         draft.map(
           (row) => ({
@@ -2281,6 +2297,7 @@ export default function MatchImportPanel({
           }),
         ),
       );
+      }
 
       setSuccessMessage(
         `Matchweek ${normalizedMatchweek} salvata: ${draft.length} ${

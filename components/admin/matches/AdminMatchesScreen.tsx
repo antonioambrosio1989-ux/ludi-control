@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 
@@ -11,6 +11,11 @@ import {
 
 import AppShell from "@/components/ui/AppShell";
 import TeamLogo from "@/components/common/TeamLogo";
+import PlayerPhotoUploader from "@/components/admin/players/PlayerPhotoUploader";
+import {
+  FirebaseMatchReportRepository,
+  type CloudMatchReport,
+} from "@/src/services/match/FirebaseMatchReportRepository";
 
 import { MATCH_TIMES } from "@/src/constants/matchTimes";
 
@@ -362,6 +367,37 @@ const seasonTeamOptions =
   currentSeasonId,
 );
 
+  const [publishedSnapshot, setPublishedSnapshot] = useState<{
+    seasonId: string;
+    reports: CloudMatchReport[];
+  } | null>(null);
+  const [photoUploadMatchId, setPhotoUploadMatchId] = useState<string | null>(null);
+  const [savingPhotoMatchId, setSavingPhotoMatchId] = useState<string | null>(null);
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+
+  const publishedReportsByMatchId = useMemo(
+    () => new Map(
+      (publishedSnapshot?.seasonId === currentSeasonId
+        ? (publishedSnapshot?.reports ?? [])
+        : []).map((report) => [report.matchId, report]),
+    ),
+    [publishedSnapshot, currentSeasonId],
+  );
+
+  async function savePublishedMvpPhoto(matchId: string, photoUrl: string) {
+    setSavingPhotoMatchId(matchId);
+    setPhotoUploadError(null);
+    try {
+      await FirebaseMatchReportRepository.setPublishedMvpPhoto(matchId, photoUrl);
+      setPhotoUploadMatchId(null);
+      setActionSuccess("Foto MVP aggiunta al tabellino pubblicato.");
+    } catch (error) {
+      setPhotoUploadError(error instanceof Error ? error.message : "Impossibile salvare la foto MVP.");
+    } finally {
+      setSavingPhotoMatchId(null);
+    }
+  }
+
   const [
     selectedMatchweek,
     setSelectedMatchweek,
@@ -427,6 +463,15 @@ const effectiveSelectedMatchweek =
     useState<
       string | null
     >(null);
+
+  useEffect(() => {
+    if (!currentSeasonId) return;
+    return FirebaseMatchReportRepository.subscribePublishedBySeason(
+      currentSeasonId,
+      (reports) => setPublishedSnapshot({ seasonId: currentSeasonId, reports }),
+      (error) => setActionError(error.message),
+    );
+  }, [currentSeasonId]);
 
   /*
  * ==========================================================
@@ -661,7 +706,7 @@ const createPanelRef =
         } - ${
           awayTeam?.name ??
           "Squadra ospite"
-        }?\n\nQuesta operazione non può essere annullata.`,
+        }?\n\nQuesta operazione non puÃ² essere annullata.`,
       );
 
     if (!confirmed) {
@@ -844,7 +889,7 @@ async function handleCreateMatch() {
     !createTime
   ) {
     setActionError(
-      "Inserisci l’orario della partita.",
+      "Inserisci lâ€™orario della partita.",
     );
 
     return;
@@ -866,7 +911,7 @@ async function handleCreateMatch() {
     createAwayTeamId
   ) {
     setActionError(
-      "Una squadra non può giocare contro sé stessa.",
+      "Una squadra non puÃ² giocare contro sÃ© stessa.",
     );
 
     return;
@@ -1001,7 +1046,7 @@ async function handleCreateMatch() {
       !editTime
     ) {
       setActionError(
-        "Inserisci l’orario della partita.",
+        "Inserisci lâ€™orario della partita.",
       );
 
       return;
@@ -1023,7 +1068,7 @@ async function handleCreateMatch() {
       editAwayTeamId
     ) {
       setActionError(
-        "Una squadra non può giocare contro sé stessa.",
+        "Una squadra non puÃ² giocare contro sÃ© stessa.",
       );
 
       return;
@@ -1950,7 +1995,7 @@ async function handleCreateMatch() {
         0 ? (
         <div className="ludi-card p-8 text-center">
           <div className="text-4xl">
-            📅
+            ðŸ“…
           </div>
 
           <p className="mt-4 text-xl font-black text-[#06142E]">
@@ -1984,6 +2029,12 @@ async function handleCreateMatch() {
                   match,
                 );
 
+              const publishedReport = publishedReportsByMatchId.get(match.id);
+              const publishedWithoutPhoto =
+                publishedReport?.status === "published" &&
+                Boolean(publishedReport.data.mvpPlayerId) &&
+                !publishedReport.data.mvpPhotoUrl;
+
               const statusStyle =
                 getAdminMatchStatusStyle(
                   displayStatus,
@@ -2011,7 +2062,7 @@ async function handleCreateMatch() {
                         )}
 
                         {match.time
-                          ? ` · ${match.time}`
+                          ? ` Â· ${match.time}`
                           : ""}
                       </p>
                     </div>
@@ -2135,6 +2186,45 @@ async function handleCreateMatch() {
                         : "Elimina"}
                     </button>
                   </div>
+
+                  {publishedWithoutPhoto && (
+                    <div className="mt-3 rounded-[12px] border border-amber-200 bg-amber-50 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-bold text-amber-900">
+                          Tabellino pubblicato senza foto
+                        </p>
+                        <button
+                          type="button"
+                          disabled={savingPhotoMatchId === match.id}
+                          onClick={() => {
+                            setPhotoUploadError(null);
+                            setPhotoUploadMatchId(photoUploadMatchId === match.id ? null : match.id);
+                          }}
+                          className="rounded-lg bg-[#06142E] px-3 py-2 text-xs font-black uppercase text-white disabled:opacity-50"
+                        >
+                          Carica foto
+                        </button>
+                      </div>
+                      {photoUploadMatchId === match.id && (
+                        <div className="mt-3 rounded-lg bg-white p-3">
+                          <PlayerPhotoUploader
+                            playerName="MVP della partita"
+                            label="Foto MVP"
+                            enableEditor
+                            value={undefined}
+                            onChange={(url) => { void savePublishedMvpPhoto(match.id, url); }}
+                            onRemove={() => undefined}
+                          />
+                          {savingPhotoMatchId === match.id && (
+                            <p className="mt-2 text-xs font-bold">Salvataggio foto nel tabellino...</p>
+                          )}
+                          {photoUploadError && (
+                            <p role="alert" className="mt-2 text-xs font-bold text-red-600">{photoUploadError}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </article>
               );
             },
@@ -2145,3 +2235,4 @@ async function handleCreateMatch() {
     </AppShell>
   );
 }
+

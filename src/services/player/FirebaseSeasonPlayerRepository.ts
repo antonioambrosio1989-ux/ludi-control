@@ -17,7 +17,7 @@ import {
   FirebaseSeasonTeamRepository,
 } from "@/src/services/team/FirebaseSeasonTeamRepository";
 
-import { db } from "@/src/lib/firebase";
+import { db, auth } from "@/src/lib/firebase";
 
 import { assertSeasonWritable } from "@/src/services/season/SeasonWriteGuard";
 
@@ -26,6 +26,27 @@ import type {
   SeasonPlayer,
   UpdateSeasonPlayerInput,
 } from "@/src/types/SeasonPlayer";
+
+
+/** Le operazioni di registro sono riservate alle API Admin SDK.
+ *  La API è intenzionalmente limitata agli emulatori finché il collaudo non è completo.
+ */
+async function requestRosterRegistry<T>(action: string, payload: object): Promise<T> {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Accesso amministratore richiesto.");
+  const token = await user.getIdToken();
+  const response = await fetch("/api/admin/season-roster-registry", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action, ...payload }),
+    cache: "no-store",
+  });
+  const result: { ok?: boolean; error?: string; seasonPlayerId?: string } = await response.json();
+  if (!response.ok || result.ok !== true) {
+    throw new Error(result.error || "Operazione sul registro non consentita.");
+  }
+  return result as T;
+}
 
 const COLLECTION_NAME =
   "seasonPlayers";
@@ -378,19 +399,8 @@ if (!teamIsRegistered) {
         }
       }
 
-      const rosterRef = doc(collection(db, COLLECTION_NAME));
-      const registryRef = doc(db, REGISTRY_COLLECTION, registryId(input.seasonId, input.playerId));
-      await runTransaction(db, async (tx) => {
-        const existing = await tx.get(registryRef);
-        if (existing.exists()) throw new Error("Giocatore gia registrato nella stagione.");
-        tx.set(rosterRef, {
-          seasonId: input.seasonId, playerId: input.playerId, teamId: input.teamId,
-          role: input.role, shirtNumber: normalizeOptionalNumber(input.shirtNumber),
-          status: "active", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-        });
-        tx.set(registryRef, { seasonId: input.seasonId, playerId: input.playerId, seasonPlayerId: rosterRef.id });
-      });
-      return rosterRef.id;
+      const result = await requestRosterRegistry<{seasonPlayerId: string}>("create", { input });
+      return result.seasonPlayerId;
     },
 
     async createMany(
@@ -400,9 +410,9 @@ if (!teamIsRegistered) {
         return;
       }
 
-      if (inputs.length > 500) {
+      if (inputs.length > 200) {
         throw new Error(
-          "Puoi importare al massimo 500 giocatori alla volta.",
+          "Puoi importare al massimo 200 giocatori alla volta.",
         );
       }
 
@@ -575,36 +585,8 @@ if (invalidTeamInput) {
         }
       }
 
-      // FASE 14J: lettura delle chiavi dentro la transazione.
-      // Ogni blocco e atomico. Blocchi diversi NON sono atomici tra loro.
-      // Non pubblicare finche registro storico e regole sono completi.
-      for (let offset = 0; offset < inputs.length; offset += 2) {
-        const slice = inputs.slice(offset, offset + 2);
-        const items = slice.map((input) => ({
-          input,
-          rosterRef: doc(collection(db, COLLECTION_NAME)),
-          registryRef: doc(db, REGISTRY_COLLECTION, registryId(input.seasonId, input.playerId)),
-        }));
-        await runTransaction(db, async (tx) => {
-          // Firestore impone tutte le letture prima delle scritture.
-          const keys = await Promise.all(items.map(({registryRef}) => tx.get(registryRef)));
-          for (let index = 0; index < keys.length; index++) {
-            if (keys[index].exists()) {
-              throw new Error(`Giocatore ${items[index].input.playerId} gia presente nel registro.`);
-            }
-          }
-          for (const {input, rosterRef, registryRef} of items) {
-            tx.set(rosterRef, {
-              seasonId: input.seasonId, playerId: input.playerId, teamId: input.teamId,
-              role: input.role, shirtNumber: normalizeOptionalNumber(input.shirtNumber),
-              status: "active", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-            });
-            tx.set(registryRef, {
-              seasonId: input.seasonId, playerId: input.playerId, seasonPlayerId: rosterRef.id,
-            });
-          }
-        });
-      }
+      // La API conferma l’intero lotto in un’unica transazione atomica.
+      await requestRosterRegistry("createMany", { inputs });
     },
 
     async update(
@@ -678,6 +660,10 @@ if (!teamIsRegistered) {
         }
       }
 
+      if (input.teamId !== existingSeasonPlayer.teamId) {
+        throw new Error("Cambio squadra consentito soltanto tramite Mercato Ludi.");
+      }
+
       await updateDoc(
         doc(
           db,
@@ -685,9 +671,6 @@ if (!teamIsRegistered) {
           input.seasonPlayerId,
         ),
         {
-          teamId:
-            input.teamId,
-
           role:
             input.role,
 
@@ -995,30 +978,6 @@ async mergePlayerReferences({
         throw new Error("Il giocatore stagionale selezionato non esiste.");
       }
       await assertSeasonWritable(existingSeasonPlayer.seasonId);
-      const rosterRef = doc(db, COLLECTION_NAME, seasonPlayerId);
-      const keyRef = doc(
-        db,
-        REGISTRY_COLLECTION,
-        registryId(existingSeasonPlayer.seasonId, existingSeasonPlayer.playerId),
-      );
-      await runTransaction(db, async (tx) => {
-        const roster = await tx.get(rosterRef);
-        const key = await tx.get(keyRef);
-        if (!roster.exists() || !key.exists()) {
-          throw new Error("Registro non migrato o iscrizione assente: eliminazione bloccata.");
-        }
-        const r = roster.data();
-        if (
-          r.seasonId !== existingSeasonPlayer.seasonId ||
-          r.playerId !== existingSeasonPlayer.playerId ||
-          key.data().seasonPlayerId !== seasonPlayerId ||
-          key.data().seasonId !== r.seasonId ||
-          key.data().playerId !== r.playerId
-        ) {
-          throw new Error("Incoerenza tra iscrizione e registro: eliminazione bloccata.");
-        }
-        tx.delete(rosterRef);
-        tx.delete(keyRef);
-      });
+      await requestRosterRegistry("remove", { seasonPlayerId });
     },
   };

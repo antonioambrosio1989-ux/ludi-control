@@ -578,14 +578,119 @@ service cloud.firestore {
      * ========================================================
      */
 
+    /*
+     * STORICO TRASFERIMENTI CHAMPIONSHIP
+     * Lettura e creazione riservate agli amministratori.
+     * Le modifiche/cancellazioni dello storico sono vietate.
+     * La validazione temporale e la consistenza atomica della rosa
+     * sono gestite nel servizio, ma richiedono ulteriori controlli
+     * server-side prima di abilitare il pulsante di conferma.
+     */
+    // FASE 15F: solo amministratori possono leggere lo storico;
+    // la scrittura dello storico dei trasferimenti e SOLO server-side.
+    match /seasonTransfers/{documentId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    function validRegistryIds(seasonId, playerId) {
+      return seasonId is string
+        && playerId is string
+        && seasonId.matches('[A-Za-z0-9_-]{1,120}')
+        && playerId.matches('[A-Za-z0-9_-]{1,120}');
+    }
+
+    // Equivale a: "sp_" + base64url(JSON.stringify([seasonId, playerId]))
+    // Solo per ID alfanumerici/underscore/trattino (nessun escaping JSON).
+    function canonicalRegistryKey(seasonId, playerId) {
+      return 'sp_' + ('["' + seasonId + '","' + playerId + '"]').toUtf8().toBase64().replace('=+$', '');
+    }
+
+    function registryPath(seasonId, playerId) {
+      return /databases/$(database)/documents/seasonPlayerKeys/$(canonicalRegistryKey(seasonId, playerId));
+    }
+
+    function rosterPath(rosterId) {
+      return /databases/$(database)/documents/seasonPlayers/$(rosterId);
+    }
+
+    function validNewRoster() {
+      let d = request.resource.data;
+      return d.keys().hasAll([
+          'seasonId', 'playerId', 'teamId', 'role', 'shirtNumber',
+          'status', 'createdAt', 'updatedAt'
+        ])
+        && d.keys().hasOnly([
+          'seasonId', 'playerId', 'teamId', 'role', 'shirtNumber',
+          'status', 'createdAt', 'updatedAt'
+        ])
+        && validRegistryIds(d.seasonId, d.playerId)
+        && d.teamId is string && d.teamId.size() > 0
+        && d.role is string && d.role.size() > 0
+        && (d.shirtNumber == null || d.shirtNumber is int)
+        && d.status == 'active'
+        && d.createdAt == request.time
+        && d.updatedAt == request.time
+        && exists(/databases/$(database)/documents/seasons/$(d.seasonId))
+        && get(/databases/$(database)/documents/seasons/$(d.seasonId)).data.status in ['draft', 'active']
+        && d.teamId.matches('[A-Za-z0-9_-]{1,120}')
+        && exists(/databases/$(database)/documents/seasons/$(d.seasonId)/teamEntries/$(d.teamId))
+        && get(/databases/$(database)/documents/seasons/$(d.seasonId)/teamEntries/$(d.teamId)).data.get('status', 'active') != 'withdrawn';
+    }
+
+    match /seasonPlayerKeys/{keyId} {
+      allow read: if isAdmin();
+
+      // Creazione possibile solo insieme a un NUOVO documento rosa.
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasAll(['seasonId', 'playerId', 'seasonPlayerId'])
+        && request.resource.data.keys().hasOnly(['seasonId', 'playerId', 'seasonPlayerId'])
+        && validRegistryIds(request.resource.data.seasonId, request.resource.data.playerId)
+        && request.resource.data.seasonPlayerId is string
+        && request.resource.data.seasonPlayerId.matches('[A-Za-z0-9_-]{1,120}')
+        && keyId == canonicalRegistryKey(request.resource.data.seasonId, request.resource.data.playerId)
+        && !exists(rosterPath(request.resource.data.seasonPlayerId))
+        && existsAfter(rosterPath(request.resource.data.seasonPlayerId))
+        && getAfter(rosterPath(request.resource.data.seasonPlayerId)).data.seasonId == request.resource.data.seasonId
+        && getAfter(rosterPath(request.resource.data.seasonPlayerId)).data.playerId == request.resource.data.playerId;
+
+      allow update: if false;
+
+      // Eliminazione possibile soltanto insieme alla rosa abbinata.
+      allow delete: if isAdmin()
+        && validRegistryIds(resource.data.seasonId, resource.data.playerId)
+        && keyId == canonicalRegistryKey(resource.data.seasonId, resource.data.playerId)
+        && resource.data.seasonPlayerId is string
+        && exists(rosterPath(resource.data.seasonPlayerId))
+        && get(rosterPath(resource.data.seasonPlayerId)).data.seasonId == resource.data.seasonId
+        && get(rosterPath(resource.data.seasonPlayerId)).data.playerId == resource.data.playerId
+        && !existsAfter(rosterPath(resource.data.seasonPlayerId));
+    }
+
     match /seasonPlayers/{documentId} {
       allow read:
         if true;
 
-      allow create, update, delete:
-        if isAdmin();
-    }
+      // Iscrizioni e registro vengono creati soltanto dall'API Admin SDK.
+      // Nessun client, neppure amministratore, può creare nuove iscrizioni.
+      allow create:
+        if false;
 
+      // Un trasferimento modifica campi riservati esclusivamente alla
+      // Cloud Function che utilizza Firebase Admin SDK.
+      allow update:
+        if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'role', 'shirtNumber', 'status', 'updatedAt'
+        ])
+        && request.resource.data.status in ['active', 'inactive']
+        && resource.data.status in ['active', 'inactive'];
+
+      // Impedisce di cancellare e ricreare una iscrizione per aggirare
+      // il blocco del trasferimento. Cancellazioni: soltanto Admin SDK.
+      allow delete:
+        if false;
+    }
     /*
      * ========================================================
      * CALENDARIO E PARTITE

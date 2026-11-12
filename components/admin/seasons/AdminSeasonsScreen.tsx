@@ -22,6 +22,7 @@ import { HistoricalSeasonArchiveImportService } from "@/src/services/season/Hist
 import { HistoricalSeasonArchiveResetService } from "@/src/services/season/HistoricalSeasonArchiveResetService";
 
 import HistoricalSeasonArchiveImporter from "./HistoricalSeasonArchiveImporter";
+import SeasonMarketSettings from "./SeasonMarketSettings";
 
 type EditableSeason = {
   id: string;
@@ -1048,6 +1049,7 @@ if (
             : "+ Nuova"}
         </button>
       </header>
+      {currentSeason && <SeasonMarketSettings season={currentSeason} />}
 
       {/* ======================================================
           CARICA STAGIONE PASSATA

@@ -37,7 +37,7 @@ type Props = {
   editForm:
     ReactNode;
 
-  onRemove: (
+  onRemove?: (
     entry:
       SeasonPlayer,
   ) => void;
@@ -149,7 +149,7 @@ function RosterRoleSection({
   editForm:
     ReactNode;
 
-  onRemove: (
+  onRemove?: (
     entry:
       SeasonPlayer,
   ) => void;
@@ -251,15 +251,14 @@ function RosterRoleSection({
                       Modifica
                     </button>
 
-                    <button
+                    {onRemove && (
+<button
                       type="button"
                       disabled={
                         isRemoving
                       }
                       onClick={() => {
-                        onRemove(
-                          entry,
-                        );
+                        onRemove?.(entry);
                       }}
                       className="rounded-[10px] px-3 py-1.5 text-[10px] font-black uppercase text-red-600 disabled:opacity-35"
                     >
@@ -267,6 +266,7 @@ function RosterRoleSection({
                         ? "Rimozione..."
                         : "Rimuovi"}
                     </button>
+)}
                   </div>
                   </article>
 

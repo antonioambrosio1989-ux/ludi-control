@@ -43,6 +43,7 @@ type AdminMatchDisplayStatus =
   | "completed"
   | "live"
   | "finished"
+  | "walkover"
   | "postponed"
   | "cancelled"
   | "waiting"
@@ -133,6 +134,10 @@ if (
     return "finished";
   }
 
+  if (normalizedStatus === "walkover") {
+    return "walkover";
+  }
+
   if (
     normalizedStatus === "played" ||
     normalizedStatus === "completed"
@@ -168,6 +173,12 @@ function getAdminMatchStatusStyle(
 
         className:
           "border border-green-200 bg-green-50 text-green-700",
+      };
+
+    case "walkover":
+      return {
+        label: "Tavolino",
+        className: "border border-amber-200 bg-amber-50 text-amber-700",
       };
 
     case "live":
@@ -464,14 +475,30 @@ const effectiveSelectedMatchweek =
       string | null
     >(null);
 
-  useEffect(() => {
-    if (!currentSeasonId) return;
-    return FirebaseMatchReportRepository.subscribePublishedBySeason(
-      currentSeasonId,
-      (reports) => setPublishedSnapshot({ seasonId: currentSeasonId, reports }),
-      (error) => setActionError(error.message),
-    );
-  }, [currentSeasonId]);
+useEffect(() => {
+  if (!currentSeasonId) return;
+
+  const seasonMatchIds = new Set(
+    matches.map((match) => match.id)
+  );
+
+  return FirebaseMatchReportRepository.subscribeAll(
+    (reports) => {
+      const seasonReports = reports.filter(
+        (report) =>
+          report.seasonId === currentSeasonId ||
+          (!report.seasonId &&
+            seasonMatchIds.has(report.matchId))
+      );
+
+      setPublishedSnapshot({
+        seasonId: currentSeasonId,
+        reports: seasonReports,
+      });
+    },
+    (error) => setActionError(error.message)
+  );
+}, [currentSeasonId, matches]);
 
   /*
  * ==========================================================
@@ -2024,12 +2051,12 @@ async function handleCreateMatch() {
                   "away",
                 );
 
-              const displayStatus =
-                getAdminMatchDisplayStatus(
-                  match,
-                );
-
               const publishedReport = publishedReportsByMatchId.get(match.id);
+              const displayStatus =
+                match.status === "walkover" ||
+                publishedReport?.data?.status === "walkover"
+                  ? "walkover"
+                  : getAdminMatchDisplayStatus(match);
               const publishedWithoutPhoto =
                 publishedReport?.status === "published" &&
                 Boolean(publishedReport.data.mvpPlayerId) &&

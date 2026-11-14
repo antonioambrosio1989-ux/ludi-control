@@ -308,7 +308,7 @@ export default function AdminGamesCatalogSection({
                 Nessun gioco creato.
               </p>
             ) : (
-              <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              <div className="mt-4 grid items-start gap-3 xl:grid-cols-2">
                 {orderedGames.map(
                   (
                     game,
@@ -318,8 +318,9 @@ export default function AdminGamesCatalogSection({
                       key={
                         game.id
                       }
+                      className="min-w-0"
                     >
-                      <article className="flex h-full min-w-0 flex-col rounded-[18px] border border-[#06142E]/10 p-4">
+                      <article className="flex min-w-0 flex-col rounded-[18px] border border-[#06142E]/10 p-4">
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
                             <p className="truncate font-black uppercase text-[#06142E]">
@@ -505,7 +506,7 @@ export default function AdminGamesCatalogSection({
 
                       {editingGameId ===
                         game.id && (
-                        <div className="mt-3 rounded-[18px] bg-[#F5F5F2] p-4">
+                        <div className="mt-3 min-w-0 rounded-[18px] bg-[#F5F5F2] p-4">
                           <p className="text-xs font-black uppercase text-[#06142E]">
                             Modifica gioco
                           </p>
@@ -527,7 +528,7 @@ export default function AdminGamesCatalogSection({
                                   event.target.value,
                                 )
                               }
-                              className="mt-2 min-h-11 w-full rounded-[12px] bg-white px-4 text-sm font-bold text-[#06142E] outline-none"
+                              className="mt-2 block min-h-11 w-full min-w-0 rounded-[12px] bg-white px-4 text-sm font-bold text-[#06142E] outline-none"
                             />
                           </label>
 
@@ -549,7 +550,7 @@ export default function AdminGamesCatalogSection({
                               }
                               rows={3}
                               placeholder="Descrizione breve del gioco"
-                              className="mt-2 w-full resize-none rounded-[12px] bg-white px-4 py-3 text-sm font-bold leading-5 text-[#06142E] outline-none"
+                              className="mt-2 block w-full min-w-0 resize-y rounded-[12px] bg-white px-4 py-3 text-sm font-bold leading-5 text-[#06142E] outline-none"
                             />
                           </label>
 
@@ -572,7 +573,7 @@ export default function AdminGamesCatalogSection({
                                   event.target.value,
                                 )
                               }
-                              className="mt-2 min-h-11 w-full rounded-[12px] bg-white px-4 text-sm font-bold text-[#06142E] outline-none"
+                              className="mt-2 block min-h-11 w-full min-w-0 rounded-[12px] bg-white px-4 text-sm font-bold text-[#06142E] outline-none"
                             />
                           </label>
 
@@ -591,7 +592,7 @@ export default function AdminGamesCatalogSection({
                             }
                           />
 
-                          <div className="mt-5 flex gap-3">
+                          <div className="mt-5 grid grid-cols-2 gap-2 sm:gap-3">
                             <button
                               type="button"
                               disabled={
@@ -600,7 +601,7 @@ export default function AdminGamesCatalogSection({
                               onClick={
                                 handleCancelEditGame
                               }
-                              className="min-h-11 flex-1 rounded-[12px] bg-white px-4 text-xs font-black uppercase text-[#06142E]"
+                              className="min-h-11 min-w-0 rounded-[12px] bg-white px-2 text-[10px] font-black uppercase text-[#06142E] sm:px-4 sm:text-xs"
                             >
                               Annulla
                             </button>
@@ -613,7 +614,7 @@ export default function AdminGamesCatalogSection({
                               onClick={() => {
                                 void handleSaveGameEdit();
                               }}
-                              className="min-h-11 flex-1 rounded-[12px] bg-[#06142E] px-4 text-xs font-black uppercase text-white disabled:opacity-40"
+                              className="min-h-11 min-w-0 rounded-[12px] bg-[#06142E] px-2 text-[10px] font-black uppercase text-white disabled:opacity-40 sm:px-4 sm:text-xs"
                             >
                               {isSavingGame
                                 ? "Salvataggio..."
@@ -757,7 +758,7 @@ function GameStatusEditor({
             Attivazione programmata
           </span>
 
-          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_120px] gap-3">
+          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_120px]">
             <label className="block">
               <span className="sr-only">
                 Data di attivazione
@@ -780,7 +781,7 @@ function GameStatusEditor({
                       : "",
                   );
                 }}
-                className="min-h-11 w-full rounded-[12px] bg-white px-4 text-sm font-bold text-[#06142E] outline-none"
+                className="min-h-11 w-full min-w-0 rounded-[12px] bg-white px-4 text-sm font-bold text-[#06142E] outline-none"
               />
             </label>
 
@@ -812,7 +813,7 @@ function GameStatusEditor({
                     `${activationDate}T${event.target.value || "00:00"}`,
                   );
                 }}
-                className="min-h-11 w-full rounded-[12px] bg-white px-3 text-sm font-bold text-[#06142E] outline-none disabled:opacity-45"
+                className="min-h-11 w-full min-w-0 rounded-[12px] bg-white px-3 text-sm font-bold text-[#06142E] outline-none disabled:opacity-45"
               />
             </label>
           </div>

@@ -68,9 +68,9 @@ export const metadata:
 
     icons: {
       icon:
-        "/icons/icon-192.png",
+        "/icons/icon-192.png?v=control2",
       apple:
-        "/icons/apple-touch-icon.png",
+        "/icons/apple-touch-icon.png?v=control2",
     },
   };
 

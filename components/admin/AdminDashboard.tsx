@@ -1,6 +1,31 @@
 "use client"
 
 import Link from "next/link";
+import {
+  Swords,
+  PanelsTopLeft,
+  Newspaper,
+  TvMinimalPlay,
+  CalendarDays,
+  Sparkles,
+  FileText,
+  Video,
+  Trophy,
+  UsersRound,
+  Users,
+  UserRound,
+  Handshake,
+  Gamepad2,
+  BookOpen,
+  Medal,
+  CalendarRange,
+  Crown,
+  Target,
+  ScanFace,
+  Shield,
+  CalendarCheck2,
+  type LucideIcon,
+} from "lucide-react";
 import { useMemo } from "react";
 
 
@@ -28,7 +53,7 @@ type QuickActionFeature =
 
 type QuickAction = {
   title: string;
-  icon: string;
+  icon: LucideIcon;
   href: string;
   feature?: QuickActionFeature;
 
@@ -43,123 +68,123 @@ type QuickAction = {
 const quickActions: QuickAction[] = [
   {
     title: "Match Report",
-    icon: "🆚",
+    icon: Swords,
     href: "/admin/partite",
   },
   {
     title: "Ludi Studio",
-    icon: "📱",
+    icon: PanelsTopLeft,
     href: "/admin/ludi-studio",
   },
   {
     title: "News",
-    icon: "📰",
+    icon: Newspaper,
     href: "/admin/news",
   },
   {
    title: "Ludi TV",
-   icon: "📺",
+   icon: TvMinimalPlay,
    href: "/admin/ludi-tv",
   },
   {
     title: "Calendario",
-    icon: "📅",
+    icon: CalendarDays,
     href: "/admin/calendario",
   },
   {
     title: "Ludi Week",
-    icon: "🏅",
+    icon: Sparkles,
     href: "/admin/ludi-week",
     feature: "ludiWeek",
   },
 {
     title: "Comunicati",
-    icon: "📄",
+    icon: FileText,
     href: "/admin/comunicati",
   },
 {
    title: "Video",
-   icon: "🎥",
+   icon: Video,
    href: "/admin/video",
 },
   {
     title: "Calendario final stage",
-    icon: "🗓️",
+    icon: Trophy,
     href: "/admin/fasi-finali/calendario",
   },
   {
     title: "Rose",
-    icon: "👥",
+    icon: UsersRound,
     href: "/admin/rose",
   },
   {
     title: "Rose fasi finali",
-    icon: "🔜",
+    icon: Users,
     href: "/admin/fasi-finali/rose",
   },
   {
     title: "Giocatori",
-    icon: "👤",
+    icon: UserRound,
     href: "/admin/giocatori",
   },
 {
     title: "Sponsor",
-    icon: "🤝",
+    icon: Handshake,
     href: "/admin/sponsor",
   },
   {
   title: "Games",
-  icon: "🎮",
+  icon: Gamepad2,
   href: "/admin/games",
 },
 {
     title: "Regolamento",
-    icon: "📖",
+    icon: BookOpen,
     href: "/admin/regolamento",
   },
   {
     title: "Best Of The Month",
-    icon: "⭐",
+    icon: Medal,
     href: "/admin/best-of-the-month",
 },
 {
     title: "Stagioni",
-    icon: "🏅",
+    icon: CalendarRange,
     href: "/admin/stagioni",
   },
   {
     title: "Hall Of Fame",
-    icon: "👑",
+    icon: Crown,
     href: "/admin/hall-of-fame",
   },
   {
     title: "Albo d'oro",
-    icon: "🏆",
+    icon: Trophy,
     href: "/admin/albo-doro",
   },
   {
     title: "All Times Goalscorers",
-    icon: "🎯",
+    icon: Target,
     href: "/admin/all-times-goalscorers",
  },
   {
     title: "FUT Card",
-    icon: "🃏",
+    icon: ScanFace,
     href: "/admin/fut-card-editor",
   },
   {
     title: "Utenti",
-    icon: "📧",
+    icon: Users,
     href: "/admin/utenti",
   },
   {
     title: "Squadre",
-    icon: "🛡️",
+    icon: Shield,
     href: "/admin/squadre",
   },
   {
   title: "Chiusura stagione",
-  icon: "✅",
+  icon: CalendarCheck2,
   href: "/admin/stagioni/chiusura",
 },
 
@@ -642,7 +667,7 @@ const isLoading =
                 </Link>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+              <div className="grid grid-cols-4 gap-2">
                 {visibleQuickActions.map(
                   (
                     action,
@@ -654,18 +679,16 @@ const isLoading =
                       href={
                         action.href
                       }
-                      className="group flex min-h-[112px] min-w-0 flex-col justify-between rounded-[17px] border border-[#06142E]/8 bg-white p-4 transition hover:-translate-y-0.5 hover:border-[#06142E]/18"
+                      className="group flex min-h-[94px] min-w-0 flex-col items-center justify-center gap-2 rounded-[13px] border border-[#06142E]/8 bg-white px-1.5 py-3 text-center transition hover:-translate-y-0.5 hover:border-[#06142E]/18 active:scale-[0.98]"
                     >
                       <span
-                        aria-hidden
-                        className="text-[28px] leading-none"
+                        aria-hidden="true"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#14518A]/10 text-[#14518A]"
                       >
-                        {
-                          action.icon
-                        }
+                        <action.icon size={21} strokeWidth={2.2} />
                       </span>
 
-                      <span className="mt-4 min-w-0 text-[11px] font-black uppercase leading-tight text-[#06142E]">
+                      <span className="w-full min-w-0 break-words text-[9px] font-black uppercase leading-[1.2] tracking-[-0.01em] text-[#06142E] sm:text-[10px]">
                         {
                           action.title
                         }

@@ -42,7 +42,7 @@ export function validateTaskInput(
       String(input.category),
     ) ||
     !["low", "medium", "high"].includes(String(input.priority)) ||
-    !["none", "weekly"].includes(String(input.repeat)) ||
+    !["none", "weekly", "monthly", "yearly"].includes(String(input.repeat)) ||
     typeof input.pushEnabled !== "boolean"
   )
     throw new Error("INVALID_INPUT");

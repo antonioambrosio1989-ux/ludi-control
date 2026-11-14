@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { parseClientWalkovers, applyClientWalkovers } from './WithdrawalClientMaturedWalkovers';
 const seasonId='s1';
 const home={id:'m1',homeTeamId:'withdrawn',awayTeamId:'winner',status:'scheduled'};
-const away={id:'m2',homeTeamId:'winner',awayTeamId:'withdrawn',status:'scheduled'};
 const award={matchId:'m1',homeTeamId:'withdrawn',awayTeamId:'winner',homeScore:0,awayScore:6};
 const valid=(maturedWalkovers:unknown)=>({seasonId,verified:true,maturedWalkovers});
 describe('10L: tavolini convalidati nel client',()=>{

@@ -49,7 +49,7 @@ export default function WithdrawalOfficialControls({seasonId,teamId,teamName,eff
   }
   return <div className="mt-3 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
     <h4 className="font-black text-slate-900">Operazioni ufficiali — {teamName}</h4>
-    <p className="text-xs font-semibold text-amber-950">Questo pannello e i controlli del server, non l'audit storico sottostante, determinano se il ritiro può essere attivato.</p>
+    <p className="text-xs font-semibold text-amber-950">Questo pannello e i controlli del server, non l&apos;audit storico sottostante, determinano se il ritiro può essere attivato.</p>
     <p className="text-xs text-amber-950">Ritorno: risultati precedenti conservati e tavolini progressivi. Andata o sola andata: annullamento degli effetti sportivi, con sanzioni disciplinari conservate. Ogni attivazione richiede verifiche aggiornate sul server, anche con calendario futuro parziale.</p>
     {!active&&status?.state==='draft_pending_activation'&&<>
       <p>Per attivare digita: <strong>RITIRA {teamId}</strong></p>

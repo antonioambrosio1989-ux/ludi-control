@@ -34,7 +34,7 @@ const emulatorOnly =
   process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID === DEMO_PROJECT;
 
 export default function ChampionshipMarketPanel({
-  seasonId, seasonName, seasonStartYear, marketWindow, teams, players, roster, onCompleted,
+  seasonId, seasonName, marketWindow, teams, players, roster, onCompleted,
 }: Props) {
   const [entryId, setEntryId] = useState("");
   const [toTeamId, setToTeamId] = useState("");
@@ -222,7 +222,7 @@ export default function ChampionshipMarketPanel({
         </div>
 
         <p className="mt-3 text-xs font-medium text-amber-800">
-          Il server può rifiutare la verifica prima dell'apertura
+          Il server può rifiutare la verifica prima dell&apos;apertura
           della finestra di mercato.
         </p>
 

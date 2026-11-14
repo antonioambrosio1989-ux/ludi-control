@@ -1,24 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Season, RegularSeasonFormat } from "@/src/types/Season";
 import { FirebaseSeasonRepository } from "@/src/services/season/FirebaseSeasonRepository";
 
 export default function SeasonMarketSettings({ season }: { season: Season }) {
+  const key = [season.id, season.format, season.firstReturnMatchweek, season.marketWindow?.startDate, season.marketWindow?.endDate].join("|");
+  return <SeasonMarketSettingsForm key={key} season={season} />;
+}
+
+function SeasonMarketSettingsForm({ season }: { season: Season }) {
   const [format, setFormat] = useState<RegularSeasonFormat | "">(season.format ?? "");
   const [returnWeek, setReturnWeek] = useState(String(season.firstReturnMatchweek ?? ""));
   const [startDate, setStartDate] = useState(season.marketWindow?.startDate ?? "");
   const [endDate, setEndDate] = useState(season.marketWindow?.endDate ?? "");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    setFormat(season.format ?? "");
-    setReturnWeek(String(season.firstReturnMatchweek ?? ""));
-    setStartDate(season.marketWindow?.startDate ?? "");
-    setEndDate(season.marketWindow?.endDate ?? "");
-    setMessage("");
-  }, [season.id, season.format, season.firstReturnMatchweek, season.marketWindow?.startDate, season.marketWindow?.endDate]);
 
   const isLocked = Boolean(season.format) && season.status !== "draft";
   const canSave = !busy && !isLocked && format !== "" &&

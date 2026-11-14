@@ -119,7 +119,7 @@ export default function AdminPredictionBuilder({ gameId }: { gameId: string }) {
       </div>
       <p className="mt-3 text-xs font-bold text-[#06142E]/55">
         Scegli la competizione, seleziona una Matchweek e controlla le 10 partite prima di pubblicarle.
-        La schedina si chiude all'inizio della prima gara.
+        La schedina si chiude all&apos;inizio della prima gara.
       </p>
       {activeWeek !== null && (
         <p className="mt-3 rounded-xl bg-blue-50 p-3 text-xs font-black text-blue-800">

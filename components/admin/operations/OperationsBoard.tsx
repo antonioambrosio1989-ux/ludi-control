@@ -586,7 +586,11 @@ function PersonalOperationsBoard({
                   <p className="mt-2 text-[10px] text-[#06142E]/55">
                     {task.repeat === "weekly"
                       ? "Ricorrenza settimanale · "
-                      : ""}
+                      : task.repeat === "monthly"
+                        ? "Ricorrenza mensile · "
+                        : task.repeat === "yearly"
+                          ? "Ricorrenza annuale · "
+                          : ""}
                     {task.pushEnabled
                       ? "Promemoria push richiesti"
                       : "Solo agenda"}
@@ -877,6 +881,12 @@ function PersonalOperationsBoard({
               <option value="none">Una volta</option>
               <option value="weekly">
                 Ogni settimana, alla stessa ora italiana
+              </option>
+              <option value="monthly">
+                Ogni mese, alla stessa ora italiana
+              </option>
+              <option value="yearly">
+                Ogni anno, alla stessa ora italiana
               </option>
             </select>
           </label>

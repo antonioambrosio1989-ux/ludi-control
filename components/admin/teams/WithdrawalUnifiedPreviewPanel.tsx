@@ -91,7 +91,7 @@ export default function WithdrawalUnifiedPreviewPanel({ seasonId, teamId, teamNa
       <section className="space-y-3 rounded-xl border border-slate-300 bg-white p-3 sm:p-4" aria-label="Audit preliminare di attivazione">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div><h4 className="font-black text-[#06142E]">Audit storico — fase 7B (informativo)</h4>
-            <p className="mt-1 text-xs text-slate-600">Questi controlli appartengono alla versione preliminare e possono segnalare requisiti non più attuali. Non determinano se l'operazione ufficiale sia ammessa.</p></div>
+            <p className="mt-1 text-xs text-slate-600">Questi controlli appartengono alla versione preliminare e possono segnalare requisiti non più attuali. Non determinano se l&apos;operazione ufficiale sia ammessa.</p></div>
           <span className="rounded-md bg-red-100 px-2 py-1 text-xs font-black text-red-900">AUDIT STORICO</span>
         </div>
         {activation.available && data.activationAudit ? <>
@@ -121,7 +121,7 @@ export default function WithdrawalUnifiedPreviewPanel({ seasonId, teamId, teamNa
         {blocking.length > 0 && <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-red-950"><h5 className="font-black">Verifiche bloccanti ({blocking.length})</h5><ul className="mt-2 list-disc space-y-1 pl-5 text-xs">{blocking.map(n=><li key={n.message}>{noticeLabel(n.message)}</li>)}</ul></div>}
         {review.length > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950"><h5 className="font-black">Da verificare ({review.length})</h5><ul className="mt-2 list-disc space-y-1 pl-5 text-xs">{review.map(n=><li key={n.message}>{noticeLabel(n.message)}</li>)}</ul></div>}
         {information.length > 0 && <div className="rounded-lg border border-slate-200 bg-white p-3 text-slate-800"><h5 className="font-black">Informazioni ({information.length})</h5><ul className="mt-2 list-disc space-y-1 pl-5 text-xs">{information.map(n=><li key={n.message}>{noticeLabel(n.message)}</li>)}</ul></div>}
-        {notices.length === 0 && <p className="text-xs text-slate-600">Nessun avviso dal motore. Non costituisce autorizzazione all'applicazione.</p>}
+        {notices.length === 0 && <p className="text-xs text-slate-600">Nessun avviso dal motore. Non costituisce autorizzazione all&apos;applicazione.</p>}
       </section>
       <button type="button" onClick={() => setExpanded(v=>!v)} className="text-xs font-black text-[#06142E] underline">{expanded ? "Nascondi dettagli" : "Mostra dettagli"}</button>
       {expanded && <div className="space-y-5">

@@ -38,13 +38,15 @@ export default function WithdrawalRegistryPage() {
   const [config, setConfig] = useState<SavedConfig | null>(null);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [teamId, setTeamId] = useState("");
-  useEffect(() => {
-    const preselectedTeamId = new URLSearchParams(window.location.search).get("teamId");
-    if (!preselectedTeamId || !/^[A-Za-z0-9_-]{1,128}$/.test(preselectedTeamId)) return;
-    if (entries.some(entry => entry.status === "active" && String(entry.teamId) === preselectedTeamId)) {
-      setTeamId(preselectedTeamId);
-    }
-  }, [entries]);
+  const preselectedTeamId = typeof window === "undefined"
+    ? null
+    : new URLSearchParams(window.location.search).get("teamId");
+  const effectiveTeamId = teamId || (
+    preselectedTeamId && /^[A-Za-z0-9_-]{1,128}$/.test(preselectedTeamId) &&
+    entries.some((entry) => entry.status === "active" && String(entry.teamId) === preselectedTeamId)
+      ? preselectedTeamId
+      : ""
+  );
   const [effectiveMatchweek, setEffectiveMatchweek] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -108,7 +110,7 @@ export default function WithdrawalRegistryPage() {
     try {
       const payload = action === "configure" ? {
         action,seasonId,rules:{format,totalMatchweeks:Number(totalMatchweeks),firstReturnMatchweek:format==="single_round_robin"?null:Number(firstReturnMatchweek)}
-      } : {action,seasonId,teamId,effectiveMatchweek:Number(effectiveMatchweek)};
+      } : {action,seasonId,teamId:effectiveTeamId,effectiveMatchweek:Number(effectiveMatchweek)};
       await authorizedFetch("/api/admin/withdrawals",{method:"POST",body:JSON.stringify(payload)});
       await reload();setConfirmed(false);
       setMessage(action === "configure" ? "Formato ufficiale salvato." : "Registrazione creata in BOZZA. Nessun effetto sportivo applicato.");
@@ -131,7 +133,7 @@ export default function WithdrawalRegistryPage() {
         <p className="mt-2 text-sm text-[#06142E]/60">{selectedCompetition?.name ?? "Competizione"} · {currentSeason?.name ?? "Nessuna stagione selezionata"}</p>
       </header>
       <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
-        Ritiri ufficiali: nel ritorno si applicano tavolini progressivi; nell'andata o nei campionati di sola andata si annullano i soli effetti sportivi delle gare. Cartellini e squalifiche rimangono validi. L'attivazione richiede sempre le verifiche del server.
+        Ritiri ufficiali: nel ritorno si applicano tavolini progressivi; nell&apos;andata o nei campionati di sola andata si annullano i soli effetti sportivi delle gare. Cartellini e squalifiche rimangono validi. L&apos;attivazione richiede sempre le verifiche del server.
       </div>
       {!seasonId ? <p>Nessuna stagione attiva selezionata.</p> : <>
         <section className="space-y-3 rounded-2xl bg-white p-5 shadow-sm">
@@ -152,7 +154,7 @@ export default function WithdrawalRegistryPage() {
         <section className="space-y-3 rounded-2xl bg-white p-5 shadow-sm">
           <h2 className="font-black text-[#06142E]">2. Registra il ritiro come bozza</h2>
           <label className="block text-sm font-semibold">Squadra iscritta e attiva
-            <select className={inputClass} value={teamId} disabled={busy||!config} onChange={e=>{setTeamId(e.target.value);setConfirmed(false);}}>
+            <select className={inputClass} value={effectiveTeamId} disabled={busy||!config} onChange={e=>{setTeamId(e.target.value);setConfirmed(false);}}>
               <option value="">Seleziona squadra</option>
               {activeEntries.filter(e=>!registrations.some(r=>r.teamId===e.teamId && r.state!=="draft_cancelled")).map(e=><option key={e.teamId} value={e.teamId}>{teamName(e.teamId)}</option>)}
             </select></label>
@@ -161,7 +163,7 @@ export default function WithdrawalRegistryPage() {
           <p className="rounded-lg bg-slate-100 p-3 text-sm font-semibold">Conseguenza prevista: {prospectivePhase}</p>
           <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} disabled={!config||busy}/>
             Confermo che squadra e giornata sono state verificate. Questa operazione salva soltanto una bozza amministrativa.</label>
-          <button type="button" disabled={busy||!config||!teamId||!confirmed||!Number.isInteger(effectiveWeekNumber)||effectiveWeekNumber<1||effectiveWeekNumber>config.totalMatchweeks}
+          <button type="button" disabled={busy||!config||!effectiveTeamId||!confirmed||!Number.isInteger(effectiveWeekNumber)||effectiveWeekNumber<1||effectiveWeekNumber>config.totalMatchweeks}
             onClick={()=>void submit("register_draft")}
             className="rounded-xl bg-[#06142E] px-4 py-3 text-sm font-black text-white disabled:opacity-40">Registra bozza (nessun effetto sportivo)</button>
         </section>

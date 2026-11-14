@@ -10,7 +10,6 @@ import {
   updateDoc,
   where,
   writeBatch,
-  runTransaction,
 } from "firebase/firestore";
 
 import {
@@ -51,14 +50,6 @@ async function requestRosterRegistry<T>(action: string, payload: object): Promis
 const COLLECTION_NAME =
   "seasonPlayers";
 
-// FASE 14I: stesso formato di registro della anteprima 14G
-const REGISTRY_COLLECTION = "seasonPlayerKeys";
-function registryId(seasonId: string, playerId: string): string {
-  const input = new TextEncoder().encode(JSON.stringify([seasonId, playerId]));
-  let binary = "";
-  for (const byte of input) binary += String.fromCharCode(byte);
-  return "sp_" + btoa(binary).replace(/[+]/g, "-").replace(/[/]/g, "_").replace(/=+$/g, "");
-}
 
 
 function normalizeOptionalNumber(

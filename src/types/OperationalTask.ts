@@ -7,11 +7,15 @@ export type OperationalTask = {
   category: "sport" | "editorial" | "brand" | "organization";
   priority: "low" | "medium" | "high";
   dueAtMs: number;
+  // Data/ora di riferimento della prima occorrenza; mantiene il giorno
+  // originario per le ricorrenze mensili e annuali (31 e 29 febbraio).
+  // Facoltativo per compatibilita con le attivita gia salvate in Firestore.
+  repeatOriginAtMs?: number;
   status: "open" | "done" | "archived";
   revision: number;
   reminderMinutes: number[];
   pushEnabled: boolean;
-  repeat: "none" | "weekly";
+  repeat: "none" | "weekly" | "monthly" | "yearly";
   createdAtMs: number;
   updatedAtMs: number;
   completedAtMs?: number;

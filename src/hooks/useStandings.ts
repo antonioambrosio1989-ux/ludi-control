@@ -425,13 +425,16 @@ const seasonTeamIds =
     cancelledTeamIds: string[];
     maturedWalkovers: ClientWalkover[];
   } | null>(null);
-  const [withdrawalError, setWithdrawalError] = useState<string | null>(null);
+  const [withdrawalErrorState, setWithdrawalError] = useState<{ seasonId: string; message: string } | null>(null);
+  const withdrawalError =
+  withdrawalErrorState !== null &&
+  withdrawalErrorState.seasonId === seasonId
+    ? withdrawalErrorState.message
+    : null;
 
   useEffect(() => {
     if (!seasonId) return;
     const controller = new AbortController();
-    setWithdrawalState(null);
-    setWithdrawalError(null);
     const load = async () => {
       try {
         const response = await fetch(
@@ -449,7 +452,7 @@ const seasonTeamIds =
       } catch (error) {
         if (!controller.signal.aborted) {
           setWithdrawalState(null);
-          setWithdrawalError(error instanceof Error ? error.message : 'Registro ritiri non disponibile.');
+          setWithdrawalError({ seasonId, message: error instanceof Error ? error.message : 'Registro ritiri non disponibile.' });
         }
       }
     };
@@ -473,7 +476,7 @@ const seasonTeamIds =
           walkovers: withdrawalState.maturedWalkovers,
         }),
       };
-    } catch (error) {
+    } catch {
       return null;
     }
   }, [seasonId, seasonMatches, seasonReports, withdrawalError, withdrawalState]);

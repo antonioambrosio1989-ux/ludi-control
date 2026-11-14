@@ -891,7 +891,6 @@ async function resolvePredictionRoundMatches({
   championshipSeasonId,
   matchweek,
   championshipMatches,
-  leagueOneSeasonId,
   allLeagueOneMatches,
 }: {
   gameId: string;
@@ -947,62 +946,6 @@ async function resolvePredictionRoundMatches({
     if (!resolved) throw new Error("PREDICTION_ROUND_INVALID");
     return resolved;
   });
-}
-
-function selectLeagueOneMatches({
-  matches,
-  matchweek,
-  count,
-  seed,
-}: {
-  matches: RawPredictionMatch[];
-  matchweek: number;
-  count: number;
-  seed: string;
-}) {
-  if (count <= 0) return [];
-
-  const sameMatchweek = stableRandomOrder(
-    matches.filter((match) => match.matchweek === matchweek),
-    `${seed}:mw${matchweek}`,
-  );
-
-  const selected: RawPredictionMatch[] = sameMatchweek.slice(0, count);
-  if (selected.length === count) return selected;
-
-  const selectedIds = new Set(selected.map((match) => match.id));
-  const remaining = matches.filter(
-    (match) => match.matchweek !== matchweek && !selectedIds.has(match.id),
-  );
-
-  const groups = new Map<number, RawPredictionMatch[]>();
-  for (const match of remaining) {
-    const group = groups.get(match.matchweek) ?? [];
-    group.push(match);
-    groups.set(match.matchweek, group);
-  }
-
-  const orderedMatchweeks = [...groups.keys()].sort((first, second) => {
-    const firstFuture = first >= matchweek;
-    const secondFuture = second >= matchweek;
-    if (firstFuture !== secondFuture) return firstFuture ? -1 : 1;
-    if (firstFuture) return first - second;
-    return second - first;
-  });
-
-  for (const candidateMatchweek of orderedMatchweeks) {
-    const shuffled = stableRandomOrder(
-      groups.get(candidateMatchweek) ?? [],
-      `${seed}:mw${candidateMatchweek}`,
-    );
-
-    for (const match of shuffled) {
-      selected.push(match);
-      if (selected.length === count) return selected;
-    }
-  }
-
-  return selected;
 }
 
 function stableRandomOrder(matches: RawPredictionMatch[], seed: string) {

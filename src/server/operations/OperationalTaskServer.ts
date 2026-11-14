@@ -4,7 +4,7 @@ import { adminDb } from "@/src/lib/firebaseAdmin";
 import type { OperationalTask } from "@/src/types/OperationalTask";
 import { validateTaskInput } from "./OperationsPolicy";
 import {
-  nextWeeklyDeadline,
+  nextRecurringDeadline,
   reminderTimes,
 } from "@/functions/src/operationsPolicy";
 import type { Transaction } from "firebase-admin/firestore";
@@ -83,6 +83,7 @@ export async function createOperationalTask(uid: string, input: unknown) {
     revision: 1,
     createdAtMs: now,
     updatedAtMs: now,
+    repeatOriginAtMs: data.dueAtMs,
   };
   await adminDb.runTransaction(async (transaction) => {
     transaction.create(tasks().doc(task.id), task);
@@ -114,11 +115,11 @@ export async function mutateOperationalTask(
         updatedAtMs: now,
         revision: task.revision + 1,
       });
-      if (task.repeat === "weekly") {
+      if (task.repeat === "weekly" || task.repeat === "monthly" || task.repeat === "yearly") {
         const next: OperationalTask = {
           ...task,
           id: randomUUID(),
-          dueAtMs: nextWeeklyDeadline(task.dueAtMs, now),
+          dueAtMs: nextRecurringDeadline(task.dueAtMs, now, task.repeat, task.repeatOriginAtMs ?? task.dueAtMs),
           status: "open",
           revision: 1,
           createdAtMs: now,
@@ -141,6 +142,7 @@ export async function mutateOperationalTask(
       const next: OperationalTask = {
         ...task,
         ...data,
+        repeatOriginAtMs: data.dueAtMs,
         revision: task.revision + 1,
         updatedAtMs: now,
       };

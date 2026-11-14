@@ -1,6 +1,6 @@
-const fs = require('node:fs');
-const assert = require('node:assert/strict');
-const path = require('node:path');
+const fs = process.getBuiltinModule('node:fs');
+const assert = process.getBuiltinModule('node:assert/strict');
+const path = process.getBuiltinModule('node:path');
 const root = process.cwd();
 const read = p => fs.readFileSync(path.join(root,p),'utf8');
 const repo = read('src/services/player/FirebaseSeasonPlayerRepository.ts');

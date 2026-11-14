@@ -20,7 +20,11 @@ type Props = {
   onClose: () => void;
 };
 
-export default function WithdrawalPreviewPanel({
+export default function WithdrawalPreviewPanel(props: Props) {
+  return <WithdrawalPreviewPanelContent key={`${props.seasonId}:${props.teamId}`} {...props} />;
+}
+
+function WithdrawalPreviewPanelContent({
   seasonId, seasonName, teamId, teamName, seasonTeamIds, onClose,
 }: Props) {
   const [matches, setMatches] = useState<WithdrawalMatch[]>([]);
@@ -33,8 +37,6 @@ export default function WithdrawalPreviewPanel({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError(null);
     getDocs(query(collection(db, "matches"), where("seasonId", "==", seasonId)))
       .then((snapshot) => {
         if (!active) return;
@@ -151,7 +153,7 @@ export default function WithdrawalPreviewPanel({
           {partialPlan.valid ? <>
             <p className="font-black">Fase calcolata: {partialPlan.phase === "second_leg" ? "Girone di ritorno" : "Girone di andata / sola andata"}</p>
             <p className="mt-1">Regola: {partialPlan.policy === "void_all" ? "Annullamento integrale delle gare contro la squadra" : "Risultati precedenti conservati; vittorie a tavolino maturate alle giornate future"}.</p>
-            <p className="mt-1">Partite gia' note: {partialPlan.knownPlayed.length} concluse, {partialPlan.knownPending.length} ancora in calendario.</p>
+            <p className="mt-1">Partite gia&apos; note: {partialPlan.knownPlayed.length} concluse, {partialPlan.knownPending.length} ancora in calendario.</p>
             <p className="mt-2 font-bold text-amber-800">Anteprima parziale, non autorizza alcun ritiro. Le gare non ancora importate saranno gestite solo dal futuro motore di esecuzione.</p>
           </> : <p className="font-bold text-red-700">Configurazione da verificare: {partialPlan.issues.join(" ")}</p>}
         </div>}
@@ -167,12 +169,12 @@ export default function WithdrawalPreviewPanel({
         <div className="mt-3 space-y-3 rounded-xl border-2 border-red-300 bg-white p-4" role="status">
           <p className="text-sm font-black text-red-800">Calendario non completo o incoerente — ritiro bloccato</p>
           <p className="text-xs font-semibold leading-5 text-[#06142E]/75">
-            I dati seguenti descrivono esclusivamente le partite gia' caricate per {teamName}.
-            Non indicano quante gare restano nell'intera stagione e non autorizzano annullamenti o tavolini.
+            I dati seguenti descrivono esclusivamente le partite gia&apos; caricate per {teamName}.
+            Non indicano quante gare restano nell&apos;intera stagione e non autorizzano annullamenti o tavolini.
           </p>
           <div className="grid grid-cols-2 gap-2 text-center">
             <div className="rounded-lg bg-[#F4F7FB] p-3"><p className="text-xl font-black">{knownCompleted}</p><p className="text-[10px] font-bold">Risultati presenti nel calendario</p></div>
-            <div className="rounded-lg bg-[#F4F7FB] p-3"><p className="text-xl font-black">{knownPending}</p><p className="text-[10px] font-bold">Gare future gia' caricate</p></div>
+            <div className="rounded-lg bg-[#F4F7FB] p-3"><p className="text-xl font-black">{knownPending}</p><p className="text-[10px] font-bold">Gare future gia&apos; caricate</p></div>
           </div>
           <p className="text-xs font-black text-red-800">Girone effettivo non determinabile. Nessuna decisione sportiva calcolata.</p>
         </div>

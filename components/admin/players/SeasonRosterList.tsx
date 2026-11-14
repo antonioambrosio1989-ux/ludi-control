@@ -264,7 +264,7 @@ function RosterRoleSection({
                     >
                       {isRemoving
                         ? "Rimozione..."
-                        : "Rimuovi"}
+                        : "Togli dalla rosa"}
                     </button>
 )}
                   </div>

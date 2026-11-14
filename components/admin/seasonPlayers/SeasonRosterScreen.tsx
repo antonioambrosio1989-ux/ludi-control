@@ -503,7 +503,7 @@ export default function SeasonRosterScreen() {
       : null
   }
 
-  onRemove={currentSeason?.status === "draft" ? handleRemovePlayer : undefined}
+  onRemove={handleRemovePlayer}
 
   onEdit={(
     entry,

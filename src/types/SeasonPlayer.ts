@@ -23,6 +23,7 @@ export type SeasonPlayer = {
 
   joinedAt?: string;
   leftAt?: string;
+  inactivePeriods?: { from: string; to?: string }[];
   baseRating?: number;
 
   createdAt?: unknown;

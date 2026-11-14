@@ -29,6 +29,7 @@ import {
 import {
   FirebaseSeasonPlayerRepository,
 } from "@/src/services/player/FirebaseSeasonPlayerRepository";
+import { auth } from "@/src/lib/firebase";
 
 import {
   FirebasePlayerRepository,
@@ -482,8 +483,7 @@ const currentSeasonId =
               String(
                 effectiveSelectedTeamId,
               ) &&
-            entry.status !==
-              "withdrawn",
+            entry.status === "active",
         ),
       [
         seasonPlayers,
@@ -506,8 +506,7 @@ const currentSeasonId =
               (
                 entry,
               ) =>
-                entry.status !==
-                "withdrawn",
+                entry.status !== "withdrawn" && entry.status !== "inactive",
             )
             .map(
               (
@@ -1051,19 +1050,19 @@ const competitionId =
        * ISCRIZIONE ALLA ROSA
        */
 
-      await FirebaseSeasonPlayerRepository.create({
-        seasonId,
-
-        teamId:
-          effectiveSelectedTeamId,
-
-        playerId,
-
-        role,
-
-        shirtNumber:
-          normalizedShirtNumber,
-      });
+      const inactiveEntry = seasonPlayers.find(
+        (entry) => String(entry.playerId) === String(playerId) && entry.status === "inactive"
+      );
+      if (inactiveEntry) {
+        await requestRosterMembership("restore", inactiveEntry.id, {
+          teamId: effectiveSelectedTeamId, role, shirtNumber: normalizedShirtNumber,
+        });
+      } else {
+        await FirebaseSeasonPlayerRepository.create({
+          seasonId, teamId: effectiveSelectedTeamId, playerId, role,
+          shirtNumber: normalizedShirtNumber,
+        });
+      }
 
       await refreshPlayers();
 
@@ -1343,6 +1342,27 @@ const competitionId =
  * RIMOZIONE DALLA ROSA
  * ============================================================
  */
+  async function requestRosterMembership(
+    action: "release" | "restore",
+    seasonPlayerId: string,
+    extras: Record<string, unknown> = {},
+  ) {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Accesso amministratore richiesto.");
+    const token = await user.getIdToken();
+    const response = await fetch("/api/admin/roster-membership", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, seasonPlayerId, ...extras }),
+    });
+    const result = await response.json() as { ok?: boolean; error?: string };
+    if (!response.ok || result.ok !== true) {
+      throw new Error(result.error ?? "Operazione sulla rosa non riuscita.");
+    }
+  }
+
+
 
   async function handleRemovePlayer(
     entry:
@@ -1369,7 +1389,7 @@ const competitionId =
 
     const confirmed =
       window.confirm(
-        `Vuoi rimuovere ${playerName} dalla rosa di ${teamName}?`,
+        `Togliere ${playerName} dalla rosa di ${teamName}? Il giocatore conserverà tabellini e statistiche già maturate, ma non comparirà nelle classifiche individuali finché non verrà reinserito.`,
       );
 
     if (
@@ -1383,9 +1403,7 @@ const competitionId =
     );
 
     try {
-      await FirebaseSeasonPlayerRepository.remove(
-        entry.id,
-      );
+      await requestRosterMembership("release", entry.id);
 
       await refreshSeasonPlayers();
     } catch (

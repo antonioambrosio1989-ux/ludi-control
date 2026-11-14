@@ -1238,22 +1238,25 @@ async function handleCreateMatch() {
     }
   }
 
+  // La vittoria a tavolino è una partita conclusa anche se
+  // l'esito è salvato soltanto nel match report (anche in bozza).
+  const resolveDisplayStatus = (match: Match): AdminMatchDisplayStatus => {
+    const report = publishedReportsByMatchId.get(match.id);
+    return match.status === "walkover" ||
+      report?.data?.status === "walkover"
+      ? "walkover"
+      : getAdminMatchDisplayStatus(match);
+  };
+
   const completedMatches =
-    filteredMatches.filter(
-      (match) =>
-        getAdminMatchDisplayStatus(
-          match,
-        ) ===
-        "completed",
-    ).length;
+    filteredMatches.filter((match) => {
+      const status = resolveDisplayStatus(match);
+      return status === "completed" || status === "walkover";
+    }).length;
 
   const liveMatches =
     filteredMatches.filter(
-      (match) =>
-        getAdminMatchDisplayStatus(
-          match,
-        ) ===
-        "live",
+      (match) => resolveDisplayStatus(match) === "live",
     ).length;
 
   const pendingMatches =
@@ -2052,11 +2055,7 @@ async function handleCreateMatch() {
                 );
 
               const publishedReport = publishedReportsByMatchId.get(match.id);
-              const displayStatus =
-                match.status === "walkover" ||
-                publishedReport?.data?.status === "walkover"
-                  ? "walkover"
-                  : getAdminMatchDisplayStatus(match);
+              const displayStatus = resolveDisplayStatus(match);
               const publishedWithoutPhoto =
                 publishedReport?.status === "published" &&
                 Boolean(publishedReport.data.mvpPlayerId) &&

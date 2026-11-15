@@ -94,8 +94,8 @@ export default function AdminPredictionBuilder({ gameId }: { gameId: string }) {
   }
 
   async function publish() {
-    if (!preview || working || preview.isClosed || preview.matches.length !== 10) return;
-    if (!window.confirm(`Pubblicare la schedina della Matchweek ${preview.matchweek} con 10 incontri?`)) return;
+    if (!preview || working || preview.isClosed || preview.alreadyPublished || preview.matches.length === 0) return;
+    if (!window.confirm(`Pubblicare la schedina della Matchweek ${preview.matchweek} con ${preview.matches.length} incontri?`)) return;
     setWorking(true); setError(null); setMessage(null);
     try {
       await request("", { method: "POST", body: JSON.stringify({
@@ -118,7 +118,7 @@ export default function AdminPredictionBuilder({ gameId }: { gameId: string }) {
         </div>
       </div>
       <p className="mt-3 text-xs font-bold text-[#06142E]/55">
-        Scegli la competizione, seleziona una Matchweek e controlla le 10 partite prima di pubblicarle.
+        Scegli la competizione, seleziona una Matchweek e controlla tutte le partite settimanali dei campionati attivi prima di pubblicarle.
         La schedina si chiude all&apos;inizio della prima gara.
       </p>
       {activeWeek !== null && (
@@ -168,7 +168,7 @@ export default function AdminPredictionBuilder({ gameId }: { gameId: string }) {
             </div>
           ))}
           <button type="button" onClick={() => void publish()}
-            disabled={working || preview.isClosed || preview.matches.length !== 10}
+            disabled={working || preview.isClosed || preview.alreadyPublished || preview.matches.length === 0}
             className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[13px] bg-[#0B5FFF] text-xs font-black uppercase text-white disabled:opacity-40">
             <Send size={16}/>{working ? "Pubblicazione..." : "Pubblica schedina"}
           </button>

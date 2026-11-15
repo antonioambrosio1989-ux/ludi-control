@@ -1,6 +1,5 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import { FieldValue, type DocumentData, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminDb } from "@/src/lib/firebaseAdmin";
 import { isPredictionTicketClosedAt } from "@/src/services/games/prediction/PredictionTime";
@@ -14,6 +13,7 @@ import {
   type PredictionTicket,
   type PredictionLeaderboardEntry,
 } from "@/src/types/GamesPrediction";
+import { selectAllWeeklyFixtures } from "@/src/services/games/prediction/PredictionWeeklyFixtures";
 import { isPerfectPredictionTicket } from "@/src/services/games/prediction/PredictionPerfectTicket";
 import { buildPerfectTicketNotification, perfectTicketNotificationId } from "@/src/services/games/prediction/PredictionWinnerNotification";
 
@@ -21,9 +21,6 @@ const CONFIGS = "gamesPredictionConfigs";
 const SUBMISSIONS = "gamesPredictionSubmissions";
 const ROUNDS = "gamesPredictionRounds";
 const ADMIN_NOTIFICATIONS = "adminNotifications";
-const TARGET_MATCH_COUNT = 10;
-const LEAGUE_ONE_COMPETITION_ID = "league-one";
-const LEAGUE_ONE_COMPETITION_NAME = "League One";
 
 type RawPredictionMatch = {
   id: string;
@@ -34,6 +31,7 @@ type RawPredictionMatch = {
   homeTeamId: string;
   awayTeamId: string;
   published: boolean;
+  status: string;
 };
 
 
@@ -67,11 +65,15 @@ export async function syncPerfectPredictionWinnerNotifications(
           .where("gameId", "==", filter.gameId)
       : adminDb.collection(SUBMISSIONS);
 
-  const [submissionsSnapshot, reportsSnapshot] =
+  const [submissionsSnapshot, reportsSnapshot, roundsSnapshot] =
     await Promise.all([
       submissionsReference.get(),
       adminDb.collection("matchReports").get(),
+      adminDb.collection(ROUNDS).get(),
     ]);
+  const publishedMatchIds = new Map(roundsSnapshot.docs
+    .filter((document) => document.data().status === "published")
+    .map((document) => [document.id, normalizeStringArray(document.data().selectedMatchIds)]));
 
   const resultByMatchId =
     new Map<string, PredictionResolvedResult>();
@@ -227,10 +229,7 @@ export async function syncPerfectPredictionWinnerNotifications(
             PredictionSelection[]
         : [];
 
-    if (
-      selections.length !==
-      TARGET_MATCH_COUNT
-    ) {
+    if (selections.length === 0) {
       continue;
     }
 
@@ -254,7 +253,7 @@ export async function syncPerfectPredictionWinnerNotifications(
       new Set(
         selectedMatchIds,
       ).size !==
-        TARGET_MATCH_COUNT
+        selectedMatchIds.length
     ) {
       continue;
     }
@@ -269,11 +268,11 @@ export async function syncPerfectPredictionWinnerNotifications(
         0 &&
       (
         storedMatchIds.length !==
-          TARGET_MATCH_COUNT ||
+          selectedMatchIds.length ||
         new Set(
           storedMatchIds,
         ).size !==
-          TARGET_MATCH_COUNT ||
+          selectedMatchIds.length ||
         storedMatchIds.some(
           (
             matchId,
@@ -284,6 +283,13 @@ export async function syncPerfectPredictionWinnerNotifications(
         )
       )
     ) {
+      continue;
+    }
+
+    const requiredMatchIds = publishedMatchIds.get(`${gameId}_${seasonId}_mw${matchweek}`);
+    if (!requiredMatchIds?.length ||
+      requiredMatchIds.length !== selectedMatchIds.length ||
+      requiredMatchIds.some((matchId) => !selectedMatchIds.includes(matchId))) {
       continue;
     }
 
@@ -527,8 +533,9 @@ export async function savePredictionConfig(input: { gameId: string; competitionI
     outcomePoints: 30,
     goalBandPoints: 20,
     goalThreshold: 7.5,
-    targetMatchCount: TARGET_MATCH_COUNT,
-    secondaryCompetitionId: LEAGUE_ONE_COMPETITION_ID,
+    targetMatchCount: FieldValue.delete(),
+    secondaryCompetitionId: FieldValue.delete(),
+    selectionMode: "all-active-weekly-matches",
     updatedBy: input.adminUid,
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
@@ -553,28 +560,30 @@ export type PredictionAdminPreview = {
 };
 
 async function loadPredictionAdminContext(competitionId: string) {
-  const [seasonsSnapshot, matchesSnapshot, teamsSnapshot] = await Promise.all([
+  const [seasonsSnapshot, matchesSnapshot, teamsSnapshot, competitionsSnapshot] = await Promise.all([
     adminDb.collection("seasons").get(),
     adminDb.collection("matches").get(),
     adminDb.collection("teams").get(),
+    adminDb.collection("competitions").get(),
   ]);
-  const season = seasonsSnapshot.docs.find((document) => {
+  const activeSeasons = seasonsSnapshot.docs.filter((document) => {
     const value = document.data();
-    return value.competitionId === competitionId &&
-      (value.status === "active" || value.isCurrent === true);
+    return value.status === "active" || value.isCurrent === true;
   });
+  const season = activeSeasons.find((document) => document.data().competitionId === competitionId);
   if (!season) throw new Error("ACTIVE_SEASON_REQUIRED");
-  const leagueSeason = seasonsSnapshot.docs.find((document) => {
-    const value = document.data();
-    return value.competitionId === LEAGUE_ONE_COMPETITION_ID &&
-      (value.status === "active" || value.isCurrent === true);
-  });
+  const competitionNames = new Map(competitionsSnapshot.docs.map((document) => [
+    document.id, String(document.data().name ?? document.id),
+  ]));
+  const activeCompetitionBySeason = new Map(activeSeasons.map((document) => [
+    document.id, String(document.data().competitionId ?? ""),
+  ]));
   const allMatches = matchesSnapshot.docs.map(normalizeRawMatch).filter((match) => match.published);
   const teamNames = new Map(teamsSnapshot.docs.map((document) => [
     document.id,
     String(document.data().aliasName ?? document.data().name ?? document.id),
   ]));
-  return { season, leagueSeason, allMatches, teamNames };
+  return { season, allMatches, teamNames, activeCompetitionBySeason, competitionNames };
 }
 
 export async function getPredictionAdminMatchweeks(competitionId: string) {
@@ -589,41 +598,45 @@ async function buildPredictionAdminPreview(
   gameId: string,
   competitionId: string,
   matchweek: number,
-): Promise<PredictionAdminPreview & { matchIds: string[]; championshipIds: string[]; leagueIds: string[]; leagueSeasonId: string | null }> {
+): Promise<PredictionAdminPreview & { matchIds: string[]; competitionMatchIds: Record<string, string[]> }> {
   if (!Number.isInteger(matchweek) || matchweek <= 0) throw new Error("INVALID_MATCHWEEK");
   const context = await loadPredictionAdminContext(competitionId);
-  const championship = context.allMatches.filter(
-    (match) => match.seasonId === context.season.id && match.matchweek === matchweek,
+  const anchorMatches = context.allMatches.filter(
+    (match) => match.seasonId === context.season.id && match.matchweek === matchweek &&
+      match.status !== "cancelled" && match.homeTeamId !== "__ludi_bye__" && match.awayTeamId !== "__ludi_bye__",
   ).sort(compareMatchKickoff);
-  if (!championship.length) throw new Error("NO_MATCHWEEK_AVAILABLE");
-  if (championship.length > TARGET_MATCH_COUNT) throw new Error("TOO_MANY_CHAMPIONSHIP_MATCHES");
-  const remaining = TARGET_MATCH_COUNT - championship.length;
-  // Le giornate numeriche delle competizioni possono essere sfalsate.
-  // Selezioniamo solo gare League One della stessa settimana di calendario.
-  const firstDate = new Date(`${championship[0].date}T12:00:00Z`);
-  if (Number.isNaN(firstDate.getTime())) throw new Error("INVALID_MATCH_DATE");
-  const weekday = (firstDate.getUTCDay() + 6) % 7;
-  firstDate.setUTCDate(firstDate.getUTCDate() - weekday);
-  const weekStart = firstDate.toISOString().slice(0, 10);
-  firstDate.setUTCDate(firstDate.getUTCDate() + 7);
-  const weekEnd = firstDate.toISOString().slice(0, 10);
-  const league = remaining === 0 ? [] : stableRandomOrder(
-    context.allMatches.filter((match) =>
-      match.seasonId === context.leagueSeason?.id &&
-      match.date >= weekStart && match.date < weekEnd,
-    ), `${gameId}_${context.season.id}_mw${matchweek}:league`
-  ).slice(0, remaining);
-  if (league.length !== remaining) throw new Error("NOT_ENOUGH_PREDICTION_MATCHES");
-  const selected = [...championship, ...league];
-  const closesAt = selected.map(matchDateTimeKey).sort()[0];
+  if (!anchorMatches.length) throw new Error("NO_MATCHWEEK_AVAILABLE");
+
   const roundRef = adminDb.collection(ROUNDS).doc(`${gameId}_${context.season.id}_mw${matchweek}`);
   const round = await roundRef.get();
   const alreadyPublished = round.exists && round.data()?.status === "published";
+  // Una schedina pubblicata è immutabile: preserviamo i suoi ID, anche per i vecchi turni da 10.
+  const storedIds = alreadyPublished ? normalizeStringArray(round.data()?.selectedMatchIds) : [];
+  const weekly = selectAllWeeklyFixtures({
+    matches: context.allMatches,
+    activeSeasonIds: [...context.activeCompetitionBySeason.keys()],
+    anchorMatches,
+  });
+  const byId = new Map(context.allMatches.map((match) => [match.id, match]));
+  const selected = alreadyPublished
+    ? storedIds.map((id) => byId.get(id)).filter((match): match is RawPredictionMatch => Boolean(match))
+    : weekly;
+  if (!selected.length || (alreadyPublished && selected.length !== storedIds.length)) {
+    throw new Error("PREDICTION_ROUND_INVALID");
+  }
+  const competitionMatchIds: Record<string, string[]> = {};
+  for (const match of selected) {
+    const matchCompetitionId = context.activeCompetitionBySeason.get(match.seasonId) ?? competitionId;
+    (competitionMatchIds[matchCompetitionId] ??= []).push(match.id);
+  }
+  const closesAt = selected.map(matchDateTimeKey).sort()[0];
   return {
     seasonId: context.season.id, matchweek,
     matches: selected.map((match) => ({
       id: match.id,
-      competitionName: championship.includes(match) ? "Championship" : LEAGUE_ONE_COMPETITION_NAME,
+      competitionName: context.competitionNames.get(
+        context.activeCompetitionBySeason.get(match.seasonId) ?? competitionId,
+      ) ?? context.activeCompetitionBySeason.get(match.seasonId) ?? competitionId,
       homeTeamName: context.teamNames.get(match.homeTeamId) ?? "Casa",
       awayTeamName: context.teamNames.get(match.awayTeamId) ?? "Ospite",
       date: match.date, time: match.time,
@@ -632,9 +645,7 @@ async function buildPredictionAdminPreview(
     isClosed: isPredictionTicketClosedAt(closesAt),
     alreadyPublished,
     matchIds: selected.map((match) => match.id),
-    championshipIds: championship.map((match) => match.id),
-    leagueIds: league.map((match) => match.id),
-    leagueSeasonId: context.leagueSeason?.id ?? null,
+    competitionMatchIds,
   };
 }
 
@@ -673,7 +684,7 @@ export async function publishPredictionRound(input: {
     if (isPredictionTicketClosedAt(preview.closesAt)) throw new Error("TICKET_LOCKED");
     if (existingRound.exists) {
       const oldIds = normalizeStringArray(existingRound.data()?.selectedMatchIds);
-      if (oldIds.length !== TARGET_MATCH_COUNT ||
+      if (oldIds.length !== preview.matchIds.length ||
         oldIds.some((id, index) => id !== preview.matchIds[index])) {
         throw new Error("PREDICTION_ROUND_ALREADY_EXISTS");
       }
@@ -684,11 +695,8 @@ export async function publishPredictionRound(input: {
       competitionId: input.competitionId,
       championshipSeasonId: preview.seasonId,
       matchweek: input.matchweek,
-      targetMatchCount: TARGET_MATCH_COUNT,
-      championshipMatchIds: preview.championshipIds,
-      leagueOneCompetitionId: LEAGUE_ONE_COMPETITION_ID,
-      leagueOneSeasonId: preview.leagueSeasonId,
-      leagueOneMatchIds: preview.leagueIds,
+      targetMatchCount: preview.matchIds.length,
+      competitionMatchIds: preview.competitionMatchIds,
       selectedMatchIds: preview.matchIds,
       status: "published",
       publishedBy: input.adminUid,
@@ -726,11 +734,9 @@ export async function getPredictionTicket(gameId: string, uid: string): Promise<
   });
   if (!season) throw new Error("ACTIVE_SEASON_REQUIRED");
 
-  const championshipMatches = matches.docs
-    .map(normalizeRawMatch)
-    .filter((match) => match.seasonId === season.id && match.published);
-
-  if (championshipMatches.length === 0) throw new Error("NO_MATCHWEEK_AVAILABLE");
+  const allPublishedMatches = matches.docs.map(normalizeRawMatch).filter((match) => match.published);
+  const anchorMatches = allPublishedMatches.filter((match) => match.seasonId === season.id);
+  if (anchorMatches.length === 0) throw new Error("NO_MATCHWEEK_AVAILABLE");
 
   const matchweek = Number(config.activeMatchweek ?? 0);
   if (config.activeSeasonId !== season.id) throw new Error("PREDICTION_NOT_PUBLISHED");
@@ -738,33 +744,22 @@ export async function getPredictionTicket(gameId: string, uid: string): Promise<
     throw new Error("PREDICTION_NOT_PUBLISHED");
   }
 
-  const championshipMatchweekMatches = championshipMatches
-    .filter((match) => match.matchweek === matchweek)
-    .toSorted(compareMatchKickoff);
-
-  if (championshipMatchweekMatches.length === 0) throw new Error("NO_MATCHWEEK_AVAILABLE");
-  if (championshipMatchweekMatches.length > TARGET_MATCH_COUNT) throw new Error("TOO_MANY_CHAMPIONSHIP_MATCHES");
-
-  const leagueOneSeason = seasons.docs.find((document) => {
-    const value = document.data();
-    return value.competitionId === LEAGUE_ONE_COMPETITION_ID && (value.status === "active" || value.isCurrent === true);
-  });
-
-  const allLeagueOneMatches = leagueOneSeason
-    ? matches.docs
-        .map(normalizeRawMatch)
-        .filter((match) => match.seasonId === leagueOneSeason.id)
-    : [];
-
+  const activeCompetitionBySeason = new Map(seasons.docs
+    .filter((document) => document.data().status === "active" || document.data().isCurrent === true)
+    .map((document) => [document.id, String(document.data().competitionId ?? "")]));
+  const competitionSnapshot = await adminDb.collection("competitions").get();
+  const competitionNames = new Map(competitionSnapshot.docs.map((document) => [
+    document.id, String(document.data().name ?? document.id),
+  ]));
   const ticketMatches = await resolvePredictionRoundMatches({
     gameId,
-    competitionId,
-    competitionName,
     championshipSeasonId: season.id,
     matchweek,
-    championshipMatches: championshipMatchweekMatches,
-    leagueOneSeasonId: leagueOneSeason?.id ?? null,
-    allLeagueOneMatches,
+    allPublishedMatches,
+    competitionIdBySeason: activeCompetitionBySeason,
+    competitionNames,
+    fallbackCompetitionId: competitionId,
+    fallbackCompetitionName: competitionName,
   });
 
   const closesAtKey = ticketMatches
@@ -878,7 +873,7 @@ export async function getPredictionTicket(gameId: string, uid: string): Promise<
     selections,
     submittedAt: submission.data()?.submittedAt,
     score: isScored && submission.exists ? calculatePredictionScore(selections, results) : undefined,
-    maxScore: isScored ? calculatePredictionMaxScore(results) : TARGET_MATCH_COUNT * 50,
+    maxScore: isScored ? calculatePredictionMaxScore(results) : ticketMatches.length * 50,
     isScored,
     seasonLeaderboard,
   };
@@ -886,73 +881,43 @@ export async function getPredictionTicket(gameId: string, uid: string): Promise<
 
 async function resolvePredictionRoundMatches({
   gameId,
-  competitionId,
-  competitionName,
   championshipSeasonId,
   matchweek,
-  championshipMatches,
-  allLeagueOneMatches,
+  allPublishedMatches,
+  competitionIdBySeason,
+  competitionNames,
+  fallbackCompetitionId,
+  fallbackCompetitionName,
 }: {
   gameId: string;
-  competitionId: string;
-  competitionName: string;
   championshipSeasonId: string;
   matchweek: number;
-  championshipMatches: RawPredictionMatch[];
-  leagueOneSeasonId: string | null;
-  allLeagueOneMatches: RawPredictionMatch[];
+  allPublishedMatches: RawPredictionMatch[];
+  competitionIdBySeason: Map<string, string>;
+  competitionNames: Map<string, string>;
+  fallbackCompetitionId: string;
+  fallbackCompetitionName: string;
 }) {
   const roundId = `${gameId}_${championshipSeasonId}_mw${matchweek}`;
-  const roundRef = adminDb.collection(ROUNDS).doc(roundId);
-  const allMatchesById = new Map<string, {
-    match: RawPredictionMatch;
-    sourceCompetitionId: string;
-    sourceCompetitionName: string;
-  }>();
-
-  for (const match of championshipMatches) {
-    allMatchesById.set(match.id, {
-      match,
-      sourceCompetitionId: competitionId,
-      sourceCompetitionName: competitionName,
-    });
-  }
-
-  for (const match of allLeagueOneMatches) {
-    allMatchesById.set(match.id, {
-      match,
-      sourceCompetitionId: LEAGUE_ONE_COMPETITION_ID,
-      sourceCompetitionName: LEAGUE_ONE_COMPETITION_NAME,
-    });
-  }
-
-  const resolvedMatchIds = await adminDb.runTransaction(async (transaction) => {
-    const existing = await transaction.get(roundRef);
-
-    if (existing.exists) {
-      if (existing.data()?.status !== "published") throw new Error("PREDICTION_NOT_PUBLISHED");
-      const storedIds = normalizeStringArray(existing.data()?.selectedMatchIds);
-      if (storedIds.length !== TARGET_MATCH_COUNT) throw new Error("PREDICTION_ROUND_INVALID");
-      if (storedIds.some((matchId) => !allMatchesById.has(matchId))) throw new Error("PREDICTION_ROUND_INVALID");
-      return storedIds;
-    }
-
-    // Nessuna scrittura durante la lettura pubblica.
+  const round = await adminDb.collection(ROUNDS).doc(roundId).get();
+  if (!round.exists || round.data()?.status !== "published") {
     throw new Error("PREDICTION_NOT_PUBLISHED");
-  });
-
-  return resolvedMatchIds.map((matchId) => {
-    const resolved = allMatchesById.get(matchId);
-    if (!resolved) throw new Error("PREDICTION_ROUND_INVALID");
-    return resolved;
-  });
-}
-
-function stableRandomOrder(matches: RawPredictionMatch[], seed: string) {
-  return [...matches].sort((first, second) => {
-    const firstHash = createHash("sha256").update(`${seed}:${first.id}`).digest("hex");
-    const secondHash = createHash("sha256").update(`${seed}:${second.id}`).digest("hex");
-    return firstHash.localeCompare(secondHash) || first.id.localeCompare(second.id);
+  }
+  const storedIds = normalizeStringArray(round.data()?.selectedMatchIds);
+  if (!storedIds.length || new Set(storedIds).size !== storedIds.length) {
+    throw new Error("PREDICTION_ROUND_INVALID");
+  }
+  const allMatchesById = new Map(allPublishedMatches.map((match) => [match.id, match]));
+  return storedIds.map((matchId) => {
+    const match = allMatchesById.get(matchId);
+    if (!match) throw new Error("PREDICTION_ROUND_INVALID");
+    const sourceCompetitionId = competitionIdBySeason.get(match.seasonId) ?? fallbackCompetitionId;
+    return {
+      match,
+      sourceCompetitionId,
+      sourceCompetitionName: competitionNames.get(sourceCompetitionId) ??
+        (sourceCompetitionId === fallbackCompetitionId ? fallbackCompetitionName : sourceCompetitionId),
+    };
   });
 }
 
@@ -1222,6 +1187,7 @@ function normalizeRawMatch(document: QueryDocumentSnapshot<DocumentData>): RawPr
     homeTeamId: String(value.homeTeamId ?? ""),
     awayTeamId: String(value.awayTeamId ?? ""),
     published: value.published !== false,
+    status: String(value.status ?? ""),
   };
 }
 

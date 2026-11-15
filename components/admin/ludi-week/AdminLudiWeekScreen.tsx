@@ -423,6 +423,29 @@ export default function MatchweekAdmin() {
     ...confirmedOutfieldPlayerIds,
   ].filter(Boolean);
 
+  const missingPublicationRequirements: string[] = [];
+  if (isLoadingPublication || loadedSelectionKey !== selectionKey) {
+    missingPublicationRequirements.push("Caricamento dello stato della Matchweek in corso");
+  }
+  if (!topFiveConfirmed) {
+    missingPublicationRequirements.push("Conferma definitiva della Top Five");
+  }
+  if (!playerOfTheWeekConfirmed) {
+    missingPublicationRequirements.push("Conferma definitiva del Player of the Week");
+  }
+  if (!confirmedTopFiveIsComplete) {
+    missingPublicationRequirements.push("Top Five completa: un portiere e quattro giocatori diversi");
+  }
+  if (!confirmedMvpPlayerId || !confirmedTopFivePlayerIds.includes(confirmedMvpPlayerId)) {
+    missingPublicationRequirements.push("Player of the Week scelto tra i cinque confermati");
+  }
+  if (!topFiveImage?.url) {
+    missingPublicationRequirements.push("Immagine Top Five da caricare");
+  }
+  if (!playerOfTheWeekImage?.url) {
+    missingPublicationRequirements.push("Immagine Player of the Week da caricare");
+  }
+
   const canPublishSelection =
     !isLoadingPublication &&
     loadedSelectionKey === selectionKey &&
@@ -445,6 +468,16 @@ export default function MatchweekAdmin() {
       role: candidate.role,
     };
   }
+
+  /*
+   * Conserviamo gli ultimi suggerimenti in un ref. Il caricamento da
+   * Firestore dipende SOLO dalla stagione e dalla giornata selezionata:
+   * i nuovi dati dei tabellini non devono cancellare le immagini caricate.
+   */
+  const suggestedLineupRef = useRef(suggestedLineup);
+  useEffect(() => {
+    suggestedLineupRef.current = suggestedLineup;
+  }, [suggestedLineup]);
 
   /*
    * ==========================================================
@@ -516,7 +549,7 @@ export default function MatchweekAdmin() {
 
         setConfirmedGoalkeeperPlayerId(
           publication?.confirmedLineup.goalkeeperPlayerId ??
-            suggestedLineup.goalkeeperPlayerId ??
+            suggestedLineupRef.current.goalkeeperPlayerId ??
             "",
         );
 
@@ -532,8 +565,8 @@ export default function MatchweekAdmin() {
           savedOutfieldPlayerIds.length > 0
             ? savedOutfieldPlayerIds.slice(0, 4)
             : [
-                ...suggestedLineup.defenderPlayerIds,
-                ...suggestedLineup.forwardPlayerIds,
+                ...suggestedLineupRef.current.defenderPlayerIds,
+                ...suggestedLineupRef.current.forwardPlayerIds,
               ].slice(0, 4),
         );
       } catch (
@@ -574,8 +607,6 @@ export default function MatchweekAdmin() {
     selectionKey,
     currentSeasonId,
     effectiveMatchweek,
-    suggestedLineup,
-    suggestions,
   ]);
 
   /*
@@ -1111,6 +1142,7 @@ export default function MatchweekAdmin() {
               canPublish={
                 canPublishSelection
               }
+              missingRequirements={missingPublicationRequirements}
               onPublish={() => {
                 void publishLudiWeek();
               }}
@@ -1298,6 +1330,7 @@ function PublicationCard({
   isPublished,
   isPublishing,
   canPublish,
+  missingRequirements,
   instagramStatus,
   onRefreshInstagram,
   onPublish,
@@ -1313,6 +1346,8 @@ function PublicationCard({
 
   canPublish:
     boolean;
+
+  missingRequirements: string[];
 
   instagramStatus: Array<{ label: string; state: { post: InstagramPost | null; isLoading: boolean; error: string | null } }>;
   onRefreshInstagram: () => void;
@@ -1345,7 +1380,9 @@ function PublicationCard({
         >
           {isPublished
             ? "Pubblicata"
-            : "Pronta"}
+            : canPublish
+              ? "Pronta"
+              : "Da completare"}
         </span>
       </div>
 
@@ -1383,9 +1420,15 @@ function PublicationCard({
       </button>
 
       {!canPublish && (
-        <p className="mt-3 text-center text-[10px] font-bold leading-4 text-amber-200/80">
-          Conferma definitivamente la Top Five e il Player of the Week, quindi carica entrambe le immagini. Il Goal of the Week su Instagram non è obbligatorio per pubblicare.
-        </p>
+        <div className="mt-3 text-[11px] font-bold leading-5 text-amber-200/90">
+          <p>Per abilitare la pubblicazione manca:</p>
+          <ul className="mt-1 list-disc pl-5">
+            {missingRequirements.map((requirement) => (
+              <li key={requirement}>{requirement}</li>
+            ))}
+          </ul>
+          <p className="mt-2">Il Goal of the Week su Instagram non è obbligatorio.</p>
+        </div>
       )}
     </section>
   );

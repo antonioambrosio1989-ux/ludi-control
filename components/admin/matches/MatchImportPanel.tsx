@@ -1,11 +1,14 @@
 "use client";
 
-import {
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import AppShell from "@/components/ui/AppShell";
+import { optimizeLudiSchedule, LUDI_BYE_TEAM_ID } from "@/src/services/calendar/LudiScheduleOptimizer";
+import { getHistoricalByeHistory } from "@/src/services/calendar/LudiHistoricalByes";
+import { suggestMissingFixtures, type MissingFixturePlan } from "@/src/services/calendar/LudiMissingFixtures"; // LUDI_MISSING_FIXTURES_V12
+import { buildLegacyByeOverlay } from "@/src/services/calendar/LudiLegacyByes";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "@/src/lib/firebase";
 
 import { MATCH_TIMES } from "@/src/constants/matchTimes";
 
@@ -274,69 +277,6 @@ function getNextMonday() {
   );
 }
 
-function sortGeneratedOptions<T extends {
-  sortKey: string;
-  preferenceScore?: number;
-}>(
-  values: T[],
-  salt: number,
-) {
-  function score(
-    value: string,
-  ) {
-    let hash =
-      2166136261 ^
-      salt;
-
-    for (
-      let index = 0;
-      index <
-      value.length;
-      index += 1
-    ) {
-      hash ^=
-        value.charCodeAt(
-          index,
-        );
-
-      hash =
-        Math.imul(
-          hash,
-          16777619,
-        );
-    }
-
-    return hash >>> 0;
-  }
-
-  return values
-    .slice()
-    .sort(
-      (
-        first,
-        second,
-      ) => {
-        const preferenceDifference =
-          (second.preferenceScore ?? 0) -
-          (first.preferenceScore ?? 0);
-
-        if (
-          preferenceDifference !== 0
-        ) {
-          return preferenceDifference;
-        }
-
-        return (
-          score(
-            first.sortKey,
-          ) -
-          score(
-            second.sortKey,
-          )
-        );
-      },
-    );
-}
 
 function validateMatchweekDraft({
   matches,
@@ -486,13 +426,17 @@ function validateMatchweekDraft({
         );
       }
 
+      const isBye = row.awayTeamId === LUDI_BYE_TEAM_ID;
+      if (row.homeTeamId === LUDI_BYE_TEAM_ID) {
+        errors.push(`${label}: RIPOSO deve comparire soltanto come squadra ospite.`);
+      }
       if (!row.date) {
         errors.push(
           `${label}: inserisci la data.`,
         );
       }
 
-      if (!row.time) {
+      if (!row.time && !isBye) {
         errors.push(
           `${label}: inserisci l'orario.`,
         );
@@ -500,7 +444,8 @@ function validateMatchweekDraft({
 
       if (
         row.date &&
-        row.time
+        row.time &&
+        !isBye
       ) {
         const slot =
           dateTimeKey(
@@ -575,893 +520,19 @@ function validateMatchweekDraft({
   );
 }
 
+// LUDI_CALENDAR_OPTIMIZER_V6: ricerca globale su tutti i giorni; conserva le giornate parziali.
 function buildGeneratedSchedule({
-  teamIds,
-  matches,
-  availability,
-  weekStart,
-  targetMatchweek,
-  salt,
+  teamIds, withdrawnTeamIds, matches, availability, weekStart, targetMatchweek, salt,
 }: {
   teamIds: string[];
+  withdrawnTeamIds: string[];
   matches: Match[];
-  availability:
-    AvailabilityMap;
+  availability: AvailabilityMap;
   weekStart: string;
   targetMatchweek: number;
   salt: number;
 }) {
-  const blockedPairs =
-    new Set(
-      matches
-        .filter(
-          (match) =>
-            match.status !==
-            "cancelled",
-        )
-        .map(
-          (match) =>
-            pairKey(
-              String(
-                match.homeTeamId,
-              ),
-              String(
-                match.awayTeamId,
-              ),
-            ),
-        ),
-    );
-
-  const blockedSlots =
-    new Set(
-      matches
-        .filter(
-          (match) =>
-            match.status !==
-            "cancelled",
-        )
-        .map(
-          (match) =>
-            dateTimeKey(
-              match.date,
-              match.time,
-            ),
-        ),
-    );
-
-  const historicalMatches =
-    matches.filter(
-      (match) =>
-        match.status !==
-          "cancelled" &&
-        match.matchweek <
-          targetMatchweek,
-    );
-
-  function previousVenueStatus(
-    teamId: string,
-    matchweek: number,
-  ):
-    | "home"
-    | "away"
-    | null {
-    const match =
-      historicalMatches.find(
-        (item) =>
-          item.matchweek ===
-            matchweek &&
-          (
-            String(
-              item.homeTeamId,
-            ) === teamId ||
-            String(
-              item.awayTeamId,
-            ) === teamId
-          ),
-      );
-
-    if (
-      !match
-    ) {
-      return null;
-    }
-
-    return String(
-      match.homeTeamId,
-    ) === teamId
-      ? "home"
-      : "away";
-  }
-
-  function fallbackHomeTeam(
-    firstTeamId: string,
-    secondTeamId: string,
-  ) {
-    const value =
-      `${firstTeamId}|${secondTeamId}|${targetMatchweek}|${salt}`;
-
-    let hash =
-      2166136261;
-
-    for (
-      let index = 0;
-      index < value.length;
-      index += 1
-    ) {
-      hash ^=
-        value.charCodeAt(
-          index,
-        );
-
-      hash =
-        Math.imul(
-          hash,
-          16777619,
-        );
-    }
-
-    return (hash >>> 0) %
-      2 ===
-      0
-      ? firstTeamId
-      : secondTeamId;
-  }
-
-  function resolveHomeAway(
-    firstTeamId: string,
-    secondTeamId: string,
-  ) {
-    const previousMatchweeks =
-      Array.from(
-        new Set(
-          historicalMatches.map(
-            (match) =>
-              match.matchweek,
-          ),
-        ),
-      ).sort(
-        (first, second) =>
-          second - first,
-      );
-
-    for (
-      const previousMatchweek of
-      previousMatchweeks
-    ) {
-      const firstStatus =
-        previousVenueStatus(
-          firstTeamId,
-          previousMatchweek,
-        );
-
-      const secondStatus =
-        previousVenueStatus(
-          secondTeamId,
-          previousMatchweek,
-        );
-
-      if (
-        !firstStatus ||
-        !secondStatus ||
-        firstStatus ===
-          secondStatus
-      ) {
-        continue;
-      }
-
-      /*
-       * Se nell'ultimo turno utile una squadra era in casa
-       * e l'altra fuori, nella nuova giornata invertiamo i ruoli.
-       */
-      return firstStatus ===
-        "home"
-        ? {
-            homeTeamId:
-              secondTeamId,
-            awayTeamId:
-              firstTeamId,
-          }
-        : {
-            homeTeamId:
-              firstTeamId,
-            awayTeamId:
-              secondTeamId,
-          };
-    }
-
-    /*
-     * Se non esiste alcun precedente utile, l'assegnazione è casuale
-     * ma stabile per la singola generazione; "Rigenera" cambia il salt.
-     */
-    const homeTeamId =
-      fallbackHomeTeam(
-        firstTeamId,
-        secondTeamId,
-      );
-
-    return {
-      homeTeamId,
-      awayTeamId:
-        homeTeamId ===
-        firstTeamId
-          ? secondTeamId
-          : firstTeamId,
-    };
-  }
-
-  const slots =
-    WEEK_DAYS.flatMap(
-      (
-        _day,
-        dayIndex,
-      ) =>
-        GENERATOR_MATCH_TIMES.map(
-          (time) => ({
-            dayIndex,
-            time,
-            date:
-              addDays(
-                weekStart,
-                dayIndex,
-              ),
-            key:
-              availabilityKey(
-                dayIndex,
-                time,
-              ),
-          }),
-        ),
-    ).filter(
-      (slot) =>
-        slot.date &&
-        !blockedSlots.has(
-          dateTimeKey(
-            slot.date,
-            slot.time,
-          ),
-        ),
-    );
-
-  const availableSetByTeam =
-    new Map(
-      teamIds.map(
-        (teamId) => [
-          teamId,
-          new Set(
-            (
-              availability[
-                teamId
-              ] ?? []
-            ).map(
-              normalizeAvailabilitySlot,
-            ),
-          ),
-        ],
-      ),
-    );
-
-  const preferredSetByTeam =
-    new Map(
-      teamIds.map(
-        (teamId) => [
-          teamId,
-          new Set(
-            (
-              availability[
-                teamId
-              ] ?? []
-            )
-              .filter(
-                (value) =>
-                  value.startsWith(
-                    PREFERRED_AVAILABILITY_PREFIX,
-                  ),
-              )
-              .map(
-                normalizeAvailabilitySlot,
-              ),
-          ),
-        ],
-      ),
-    );
-
-  type Candidate = {
-    partnerId: string;
-    date: string;
-    time: string;
-    sortKey: string;
-    preferenceScore: number;
-  };
-
-  const target =
-    Math.floor(
-      teamIds.length / 2,
-    );
-
-  function schedulePreferenceScore(
-    schedule: DraftMatch[],
-  ) {
-    return schedule.reduce(
-      (
-        total,
-        match,
-      ) => {
-        const dayIndex =
-          WEEK_DAYS.findIndex(
-            (
-              _day,
-              index,
-            ) =>
-              addDays(
-                weekStart,
-                index,
-              ) ===
-              match.date,
-          );
-
-        if (
-          dayIndex < 0
-        ) {
-          return total;
-        }
-
-        const slotKey =
-          availabilityKey(
-            dayIndex,
-            match.time,
-          );
-
-        return (
-          total +
-          (
-            preferredSetByTeam
-              .get(
-                match.homeTeamId,
-              )
-              ?.has(
-                slotKey,
-              )
-              ? 1
-              : 0
-          ) +
-          (
-            preferredSetByTeam
-              .get(
-                match.awayTeamId,
-              )
-              ?.has(
-                slotKey,
-              )
-              ? 1
-              : 0
-          )
-        );
-      },
-      0,
-    );
-  }
-
-  function usedDayCount(
-    schedule: DraftMatch[],
-  ) {
-    return new Set(
-      schedule.map(
-        (match) =>
-          match.date,
-      ),
-    ).size;
-  }
-
-  function concentrationScore(
-    schedule: DraftMatch[],
-  ) {
-    const counts =
-      new Map<string, number>();
-
-    for (
-      const match of
-      schedule
-    ) {
-      counts.set(
-        match.date,
-        (counts.get(
-          match.date,
-        ) ?? 0) + 1,
-      );
-    }
-
-    return Array.from(
-      counts.values(),
-    ).reduce(
-      (
-        total,
-        count,
-      ) =>
-        total +
-        count * count,
-      0,
-    );
-  }
-
-  function isBetterSchedule(
-    candidate: DraftMatch[],
-    currentBest: DraftMatch[],
-  ) {
-    if (
-      candidate.length !==
-      currentBest.length
-    ) {
-      return (
-        candidate.length >
-        currentBest.length
-      );
-    }
-
-    const candidatePreferenceScore =
-      schedulePreferenceScore(
-        candidate,
-      );
-
-    const currentPreferenceScore =
-      schedulePreferenceScore(
-        currentBest,
-      );
-
-    if (
-      candidatePreferenceScore !==
-      currentPreferenceScore
-    ) {
-      return (
-        candidatePreferenceScore >
-        currentPreferenceScore
-      );
-    }
-
-    const candidateDays =
-      usedDayCount(
-        candidate,
-      );
-
-    const currentDays =
-      usedDayCount(
-        currentBest,
-      );
-
-    if (
-      candidateDays !==
-      currentDays
-    ) {
-      return (
-        candidateDays <
-        currentDays
-      );
-    }
-
-    return (
-      concentrationScore(
-        candidate,
-      ) >
-      concentrationScore(
-        currentBest,
-      )
-    );
-  }
-
-  function buildDaySubsets(
-    size: number,
-  ) {
-    const values:
-      number[][] = [];
-
-    function visit(
-      startIndex: number,
-      current: number[],
-    ) {
-      if (
-        current.length ===
-        size
-      ) {
-        values.push(
-          current.slice(),
-        );
-
-        return;
-      }
-
-      for (
-        let index =
-          startIndex;
-        index <
-          WEEK_DAYS.length;
-        index += 1
-      ) {
-        current.push(
-          index,
-        );
-
-        visit(
-          index + 1,
-          current,
-        );
-
-        current.pop();
-      }
-    }
-
-    visit(
-      0,
-      [],
-    );
-
-    return values;
-  }
-
-  function searchWithinDays(
-    allowedDays: Set<number>,
-  ) {
-    const allowedSlots =
-      slots.filter(
-        (slot) =>
-          allowedDays.has(
-            slot.dayIndex,
-          ),
-      );
-
-    function getOptions(
-      teamId: string,
-      remaining: string[],
-      usedSlots: Set<string>,
-    ): Candidate[] {
-      const teamAvailability =
-        availableSetByTeam.get(
-          teamId,
-        ) ??
-        new Set<string>();
-
-      const candidates:
-        Candidate[] = [];
-
-      for (
-        const partnerId of
-        remaining
-      ) {
-        if (
-          partnerId ===
-          teamId
-        ) {
-          continue;
-        }
-
-        if (
-          blockedPairs.has(
-            pairKey(
-              teamId,
-              partnerId,
-            ),
-          )
-        ) {
-          continue;
-        }
-
-        const partnerAvailability =
-          availableSetByTeam.get(
-            partnerId,
-          ) ??
-          new Set<string>();
-
-        for (
-          const slot of
-          allowedSlots
-        ) {
-          const realSlotKey =
-            dateTimeKey(
-              slot.date,
-              slot.time,
-            );
-
-          if (
-            usedSlots.has(
-              realSlotKey,
-            )
-          ) {
-            continue;
-          }
-
-          if (
-            teamAvailability.has(
-              slot.key,
-            ) &&
-            partnerAvailability.has(
-              slot.key,
-            )
-          ) {
-            const preferenceScore =
-              (
-                preferredSetByTeam
-                  .get(
-                    teamId,
-                  )
-                  ?.has(
-                    slot.key,
-                  )
-                  ? 1
-                  : 0
-              ) +
-              (
-                preferredSetByTeam
-                  .get(
-                    partnerId,
-                  )
-                  ?.has(
-                    slot.key,
-                  )
-                  ? 1
-                  : 0
-              );
-
-            candidates.push({
-              partnerId,
-              date:
-                slot.date,
-              time:
-                slot.time,
-              preferenceScore,
-              sortKey:
-                `${teamId}|${partnerId}|${slot.key}`,
-            });
-          }
-        }
-      }
-
-      return sortGeneratedOptions(
-        candidates,
-        salt,
-      );
-    }
-
-    let localBest:
-      DraftMatch[] = [];
-
-    function search(
-      remaining: string[],
-      usedSlots: Set<string>,
-      current: DraftMatch[],
-    ) {
-      if (
-        isBetterSchedule(
-          current,
-          localBest,
-        )
-      ) {
-        localBest =
-          current.slice();
-      }
-
-      if (
-        localBest.length >=
-        target
-      ) {
-        return;
-      }
-
-      if (
-        current.length +
-          Math.floor(
-            remaining.length /
-              2,
-          ) <=
-        localBest.length
-      ) {
-        return;
-      }
-
-      if (
-        remaining.length <
-        2
-      ) {
-        return;
-      }
-
-      let selectedTeam =
-        remaining[0];
-
-      let selectedOptions:
-        Candidate[] | null =
-        null;
-
-      for (
-        const teamId of
-        remaining
-      ) {
-        const options =
-          getOptions(
-            teamId,
-            remaining,
-            usedSlots,
-          );
-
-        if (
-          selectedOptions ===
-            null ||
-          options.length <
-            selectedOptions.length
-        ) {
-          selectedTeam =
-            teamId;
-
-          selectedOptions =
-            options;
-        }
-
-        if (
-          options.length ===
-          0
-        ) {
-          break;
-        }
-      }
-
-      const options =
-        selectedOptions ?? [];
-
-      for (
-        const option of
-        options
-      ) {
-        const slotKey =
-          dateTimeKey(
-            option.date,
-            option.time,
-          );
-
-        const nextRemaining =
-          remaining.filter(
-            (teamId) =>
-              teamId !==
-                selectedTeam &&
-              teamId !==
-                option.partnerId,
-          );
-
-        const nextUsedSlots =
-          new Set(
-            usedSlots,
-          );
-
-        nextUsedSlots.add(
-          slotKey,
-        );
-
-        const {
-          homeTeamId,
-          awayTeamId,
-        } =
-          resolveHomeAway(
-            selectedTeam,
-            option.partnerId,
-          );
-
-        search(
-          nextRemaining,
-          nextUsedSlots,
-          [
-            ...current,
-            {
-              id:
-                `generated-${selectedTeam}-${option.partnerId}-${slotKey}`,
-              date:
-                option.date,
-              time:
-                option.time,
-              homeTeamId,
-              awayTeamId,
-            },
-          ],
-        );
-
-        if (
-          localBest.length >=
-          target
-        ) {
-          return;
-        }
-      }
-
-      search(
-        remaining.filter(
-          (teamId) =>
-            teamId !==
-            selectedTeam,
-        ),
-        usedSlots,
-        current,
-      );
-    }
-
-    search(
-      teamIds,
-      new Set<string>(),
-      [],
-    );
-
-    return localBest;
-  }
-
-  let best:
-    DraftMatch[] = [];
-
-  const theoreticalMinimumDays =
-    Math.max(
-      1,
-      Math.ceil(
-        target /
-          GENERATOR_MATCH_TIMES.length,
-      ),
-    );
-
-  for (
-    let dayCount =
-      theoreticalMinimumDays;
-    dayCount <=
-      WEEK_DAYS.length;
-    dayCount += 1
-  ) {
-    const subsets =
-      buildDaySubsets(
-        dayCount,
-      );
-
-    for (
-      const subset of
-      subsets
-    ) {
-      const candidate =
-        searchWithinDays(
-          new Set(
-            subset,
-          ),
-        );
-
-      if (
-        isBetterSchedule(
-          candidate,
-          best,
-        )
-      ) {
-        best =
-          candidate;
-      }
-
-      if (
-        best.length >=
-          target &&
-        usedDayCount(
-          best,
-        ) <=
-          dayCount
-      ) {
-        return best.sort(
-          (
-            first,
-            second,
-          ) =>
-            `${first.date}|${first.time}`.localeCompare(
-              `${second.date}|${second.time}`,
-            ),
-        );
-      }
-    }
-  }
-
-  return best.sort(
-    (
-      first,
-      second,
-    ) =>
-      `${first.date}|${first.time}`.localeCompare(
-        `${second.date}|${second.time}`,
-      ),
-  );
+  return optimizeLudiSchedule({ teamIds, withdrawnTeamIds, matches, availability, weekStart, targetMatchweek, salt });
 }
 
 export default function MatchImportPanel({
@@ -1503,21 +574,57 @@ export default function MatchImportPanel({
         undefined,
     );
 
-  const registeredTeamIds =
-    useMemo(
-      () =>
-        new Set(
-          seasonTeamEntries.map(
-            (entry) =>
-              String(
-                entry.teamId,
-              ),
-          ),
-        ),
-      [
-        seasonTeamEntries,
-      ],
+  // Registro ufficiale dei ritiri: la sola teamEntries.status non e sufficiente.
+  // I ritiri ufficiali possono avere state=active ed effectsApplied=true senza
+  // modificare teamEntries. Non mostriamo squadre finche la lettura non e conclusa.
+  const [calendarOfficialWithdrawals, setCalendarOfficialWithdrawals] =
+    useState<{ seasonId: string; teamIds: string[]; error: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!targetSeasonId) return;
+    let cancelled = false;
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        if (!cancelled) setCalendarOfficialWithdrawals({ seasonId: targetSeasonId, teamIds: [], error: "Accesso amministratore richiesto per leggere i ritiri." });
+        return;
+      }
+      void (async () => {
+        try {
+          const token = await user.getIdToken();
+          const response = await fetch(
+            "/api/admin/withdrawals?seasonId=" + encodeURIComponent(targetSeasonId),
+            { headers: { Authorization: "Bearer " + token }, cache: "no-store" },
+          );
+          if (!response.ok) throw new Error("Registro ritiri non disponibile (HTTP " + response.status + ").");
+          const data: { registrations?: Array<{ teamId?: string; id?: string; state?: string; effectsApplied?: boolean }> } = await response.json();
+          if (!Array.isArray(data.registrations)) throw new Error("Risposta registro ritiri non valida.");
+          const teamIds = data.registrations
+            .filter((entry) => entry.state === "active" && entry.effectsApplied === true)
+            .map((entry) => String(entry.teamId || entry.id || ""))
+            .filter(Boolean);
+          if (!cancelled) setCalendarOfficialWithdrawals({ seasonId: targetSeasonId, teamIds, error: null });
+        } catch (error) {
+          if (!cancelled) setCalendarOfficialWithdrawals({
+            seasonId: targetSeasonId, teamIds: [],
+            error: error instanceof Error ? error.message : "Impossibile verificare i ritiri.",
+          });
+        }
+      })();
+    });
+    return () => { cancelled = true; unsubscribe(); };
+  }, [targetSeasonId]);
+
+  const registeredTeamIds = useMemo(() => {
+    if (!targetSeasonId ||
+        calendarOfficialWithdrawals?.seasonId !== targetSeasonId ||
+        calendarOfficialWithdrawals.error) return new Set<string>();
+    const withdrawnIds = new Set(calendarOfficialWithdrawals.teamIds);
+    return new Set(
+      seasonTeamEntries
+        .filter((entry) => entry.status === "active" && !withdrawnIds.has(String(entry.teamId)))
+        .map((entry) => String(entry.teamId)),
     );
+  }, [seasonTeamEntries, targetSeasonId, calendarOfficialWithdrawals]);
 
   const targetSeasonTeams =
     useMemo(
@@ -1536,22 +643,37 @@ export default function MatchImportPanel({
       ],
     );
 
+  // Fonte unica dei ritiri: iscrizione stagionale e registro ufficiale.
+  const historicallyWithdrawnTeamIds = useMemo(() => [
+    ...new Set([
+      ...seasonTeamEntries.filter((entry) => entry.status === "withdrawn").map((entry) => String(entry.teamId)),
+      ...(calendarOfficialWithdrawals?.seasonId === targetSeasonId ? calendarOfficialWithdrawals.teamIds : []),
+    ]),
+  ], [seasonTeamEntries, calendarOfficialWithdrawals, targetSeasonId]);
+
+  const boardTeams = useMemo(() =>
+    targetSeasonTeams.length % 2 === 1
+      ? [...targetSeasonTeams, { id: LUDI_BYE_TEAM_ID, name: "RIPOSO", shortName: "RIP" }]
+      : targetSeasonTeams,
+    [targetSeasonTeams],
+  );
+
   const teamNameById =
     useMemo(
       () =>
         new Map(
-          targetSeasonTeams.map(
+          boardTeams.map(
             (team) => [
               String(
                 team.id,
               ),
-              team.aliasName?.trim() ||
+              ("aliasName" in team ? team.aliasName?.trim() : "") ||
                 team.name,
             ],
           ),
         ),
       [
-        targetSeasonTeams,
+        boardTeams,
       ],
     );
 
@@ -1616,6 +738,8 @@ export default function MatchImportPanel({
     useState<
       DraftMatch[]
     >([]);
+
+  const [missingFixturePlan, setMissingFixturePlan] = useState<MissingFixturePlan | null>(null);
 
   const [
     generationSalt,
@@ -1847,6 +971,19 @@ export default function MatchImportPanel({
     }
   }
 
+  function getKnownLegacyByeMatches(matches: Match[]): Match[] {
+    return buildLegacyByeOverlay({
+      seasonId: targetSeasonId,
+      seasonStartYear: currentSeason?.id === targetSeasonId ? currentSeason.startYear : undefined,
+      seasonEndYear: currentSeason?.id === targetSeasonId ? currentSeason.endYear : undefined,
+      competitionName: selectedCompetition?.name,
+      teams: targetSeasonTeams,
+      allTeams: teams,
+      withdrawnTeamIds: historicallyWithdrawnTeamIds,
+      matches,
+    });
+  }
+
   async function openBoard() {
     if (
       !targetSeasonId
@@ -1868,14 +1005,44 @@ export default function MatchImportPanel({
         await FirebaseMatchRepository.getBySeason(
           targetSeasonId,
         );
+      const matchesForByes = [...matches, ...getKnownLegacyByeMatches(matches)];
 
-      setBoardMatches(
-        matches.filter(
-          (match) =>
-            match.status !==
-            "cancelled",
-        ),
-      );
+      // Il tabellone mostra virtualmente RIPOSO gia scontato da chi
+      // aveva affrontato Bristol (o altre ritirate), senza riscrivere gare.
+      const historicByes = targetSeasonTeams.length % 2 === 1
+        ? getHistoricalByeHistory({
+            matches: matchesForByes,
+            activeTeamIds: targetSeasonTeams.map((team) => String(team.id)),
+            withdrawnTeamIds: historicallyWithdrawnTeamIds,
+            beforeMatchweek: Number.MAX_SAFE_INTEGER,
+          })
+        : [];
+      const virtualHistory: Match[] = historicByes
+        .filter((bye) => bye.sourceMatchId !== undefined)
+        .filter((bye) => !matchesForByes.some((match) =>
+          match.status === "cancelled" &&
+          match.matchweek === bye.matchweek &&
+          String(match.homeTeamId) === bye.teamId &&
+          String(match.awayTeamId) === LUDI_BYE_TEAM_ID))
+        .map((bye) => ({
+          id: `virtual-bye-${bye.matchweek}-${bye.teamId}`,
+          seasonId: targetSeasonId,
+          matchweek: bye.matchweek,
+          matchweekId: `mw${bye.matchweek}`,
+          matchType: "regularSeason",
+          homeTeamId: bye.teamId,
+          awayTeamId: LUDI_BYE_TEAM_ID,
+          date: "",
+          time: "00:00",
+          venue: "RIPOSO storico (solo tabellone)",
+          status: "cancelled",
+          published: false,
+        }));
+      setBoardMatches([
+        ...matchesForByes.filter((match) => match.status !== "cancelled" ||
+          String(match.awayTeamId) === LUDI_BYE_TEAM_ID),
+        ...virtualHistory,
+      ]);
 
       setBoardSelectedPairs(
         new Set(),
@@ -2065,7 +1232,7 @@ export default function MatchImportPanel({
     );
   }
 
-  async function handleGenerate() {
+  async function handleGenerate(saltOverride?: number) {
     if (
       !targetSeasonId
     ) {
@@ -2132,19 +1299,50 @@ export default function MatchImportPanel({
                   team.id,
                 ),
             ),
-          matches:
-            existingMatches,
+          withdrawnTeamIds: historicallyWithdrawnTeamIds,
+          matches: [...existingMatches, ...getKnownLegacyByeMatches(existingMatches)],
           availability,
           weekStart,
           targetMatchweek:
             normalizedMatchweek,
           salt:
-            generationSalt,
+            saltOverride ?? generationSalt,
         });
+
+      // LUDI_CALENDAR_DIAGNOSTIC_V16: diagnostica locale; nessuna scrittura su Firestore.
+      console.info('LUDI_CALENDAR_DIAG_V16', JSON.stringify({
+        seasonId: targetSeasonId,
+        matchweek: normalizedMatchweek,
+        weekStart,
+        salt: saltOverride ?? generationSalt,
+        teams: targetSeasonTeams.map(team => ({id: String(team.id), name: team.aliasName?.trim() || team.name})),
+        withdrawnTeamIds: historicallyWithdrawnTeamIds,
+        availability,
+        existingMatches: existingMatches.map(match => ({
+          id: match.id, matchweek: match.matchweek, status: match.status,
+          date: match.date, time: match.time,
+          homeTeamId: String(match.homeTeamId), awayTeamId: String(match.awayTeamId),
+        })),
+        generated: generated.map(row => ({date: row.date,time: row.time,homeTeamId: row.homeTeamId,awayTeamId: row.awayTeamId})),
+        searchTruncated: generated.searchTruncated,
+      }));
 
       setGeneratedDraft(
         generated,
       );
+      setMissingFixturePlan(suggestMissingFixtures({
+        activeTeamIds: targetSeasonTeams.map((team) => String(team.id)),
+        withdrawnTeamIds: historicallyWithdrawnTeamIds,
+        matches: [...existingMatches, ...getKnownLegacyByeMatches(existingMatches)],
+        generated,
+        availability,
+        weekStart,
+        targetMatchweek: normalizedMatchweek,
+      }));
+
+      const searchLimitNotice = generated.searchTruncated
+        ? " Ricerca non esaustiva: raggiunto il limite di sicurezza; possono esistere altre combinazioni."
+        : "";
 
       const scheduledTeams =
         new Set(
@@ -2172,23 +1370,25 @@ export default function MatchImportPanel({
               team.name,
           );
 
+      const realMatchCount = generated.filter((row) => row.awayTeamId !== LUDI_BYE_TEAM_ID).length;
+      const hasScheduledBye = generated.some((row) => row.awayTeamId === LUDI_BYE_TEAM_ID);
       if (
         generated.length ===
         0
       ) {
         setGeneratorMessage(
-          "Non è stata trovata alcuna combinazione valida. Modifica le disponibilità e riprova.",
+          "Non è stata trovata alcuna combinazione valida. Modifica le disponibilità e riprova." + searchLimitNotice,
         );
       } else if (
         missingTeams.length >
         0
       ) {
         setGeneratorMessage(
-          `Giornata parziale: ${generated.length} partite generate. Senza partita: ${missingTeams.join(", ")}.`,
+          `Giornata parziale: ${realMatchCount} partite generate. Squadre senza abbinamento (${missingTeams.length}): ${missingTeams.join(", ")}. Modifica le disponibilità di queste squadre e premi Rigenera.` + searchLimitNotice,
         );
       } else {
         setGeneratorMessage(
-          `Giornata completa: ${generated.length} partite generate correttamente.`,
+          `Giornata completa: ${realMatchCount} partite effettive${hasScheduledBye ? " e 1 turno di RIPOSO" : ""}.` + searchLimitNotice,
         );
       }
     } catch (
@@ -2257,7 +1457,18 @@ export default function MatchImportPanel({
         return;
       }
 
-      await FirebaseMatchRepository.createMany(
+      if (draft.some((row) => row.awayTeamId === LUDI_BYE_TEAM_ID)) {
+        const currentUser = auth.currentUser;
+        if (!currentUser) throw new Error("Accesso amministratore richiesto.");
+        const token = await currentUser.getIdToken();
+        const response = await fetch("/api/admin/calendar-bye-matchweek", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ seasonId: targetSeasonId, matchweek: normalizedMatchweek, draft }),
+        });
+        const data: { error?: string } = await response.json();
+        if (!response.ok) throw new Error(data.error || "Impossibile salvare la giornata con RIPOSO.");
+      } else await FirebaseMatchRepository.createMany(
         draft.map(
           (row) => ({
             seasonId:
@@ -2283,8 +1494,8 @@ export default function MatchImportPanel({
       );
 
       setSuccessMessage(
-        `Matchweek ${normalizedMatchweek} salvata: ${draft.length} ${
-          draft.length === 1
+        `Matchweek ${normalizedMatchweek} salvata: ${draft.filter((row) => row.awayTeamId !== LUDI_BYE_TEAM_ID).length} ${
+          draft.filter((row) => row.awayTeamId !== LUDI_BYE_TEAM_ID).length === 1
             ? "partita"
             : "partite"
         }.`,
@@ -2361,7 +1572,7 @@ export default function MatchImportPanel({
 
   return (
     <AppShell>
-      
+
         {/* ======================================================
           HEADER
           ====================================================== */}
@@ -2428,11 +1639,11 @@ export default function MatchImportPanel({
           </button>
         </section>
 
-        {editorMode ===
+{editorMode ===
           "board" && (
           <ScheduleBoard
             teams={
-              targetSeasonTeams
+              boardTeams
             }
             matches={
               boardMatches
@@ -2482,7 +1693,7 @@ export default function MatchImportPanel({
               manualDraft
             }
             teams={
-              targetSeasonTeams
+              boardTeams
             }
             isSaving={
               isSavingMatchweek
@@ -2549,6 +1760,7 @@ export default function MatchImportPanel({
             generatorMessage={
               generatorMessage
             }
+            missingFixturePlan={missingFixturePlan}
             teamNameById={
               teamNameById
             }
@@ -2565,22 +1777,9 @@ export default function MatchImportPanel({
               void handleGenerate();
             }}
             onRegenerate={() => {
-              setGenerationSalt(
-                (current) =>
-                  current + 1,
-              );
-
-              /*
-               * handleGenerate usa il valore corrente dello state.
-               * Il timeout permette al nuovo salt di essere applicato
-               * prima di avviare la nuova ricerca.
-               */
-              window.setTimeout(
-                () => {
-                  void handleGenerate();
-                },
-                0,
-              );
+              const nextSalt = generationSalt + 1;
+              setGenerationSalt(nextSalt);
+              void handleGenerate(nextSalt);
             }}
             onClose={
               closeEditor
@@ -2595,7 +1794,11 @@ export default function MatchImportPanel({
 
 
         {messages}
-
+        {calendarOfficialWithdrawals?.seasonId === targetSeasonId && calendarOfficialWithdrawals.error && (
+          <p role="alert" className="mt-4 rounded-lg bg-red-50 p-4 text-sm font-bold text-red-700">
+            Impossibile verificare le squadre ritirate: {calendarOfficialWithdrawals.error}. Generazione calendario bloccata.
+          </p>
+        )}
       </div>
     </AppShell>
   );
@@ -3484,7 +2687,7 @@ function GeneratorEditor({
   teams,
   availability,
   generatedDraft,
-  generatorMessage,
+  missingFixturePlan,
   teamNameById,
   isSaving,
   onToggleAvailability,
@@ -3519,6 +2722,7 @@ function GeneratorEditor({
     DraftMatch[];
   generatorMessage:
     string | null;
+  missingFixturePlan: MissingFixturePlan | null;
   teamNameById:
     Map<string, string>;
   isSaving: boolean;
@@ -3853,13 +3057,7 @@ function GeneratorEditor({
         Genera giornata
       </button>
 
-      {generatorMessage && (
-        <div className="rounded-[14px] border border-[#06142E]/10 bg-white p-4 text-sm font-bold text-[#06142E]/70">
-          {
-            generatorMessage
-          }
-        </div>
-      )}
+
 
       {generatedDraft.length >
         0 && (
@@ -3899,13 +3097,12 @@ function GeneratorEditor({
                   key={
                     row.id
                   }
-                  className="min-w-0 rounded-[15px] bg-[#06142E]/[0.045] p-4"
+                  className={`min-w-0 rounded-[15px] p-4 ${row.awayTeamId === LUDI_BYE_TEAM_ID ? "border border-amber-200 bg-amber-50" : "bg-[#06142E]/[0.045]"}`}
                 >
                   <p className="text-xs font-black uppercase text-[#06142E]/45">
-                    {formatGeneratedPreviewDate(
-                      row.date,
-                    )} ·{" "}
-                    {row.time}
+                    {row.awayTeamId === LUDI_BYE_TEAM_ID
+                      ? "RIPOSO · Gara fittizia, nessuno slot occupato"
+                      : `${formatGeneratedPreviewDate(row.date)} · ${row.time}`}
                   </p>
 
                   <p className="mt-2 break-words text-base font-black uppercase text-[#06142E]">
@@ -3923,6 +3120,43 @@ function GeneratorEditor({
               ),
             )}
           </div>
+
+
+          {missingFixturePlan && (missingFixturePlan.fixtures.length > 0 || missingFixturePlan.unresolvedTeamIds.length > 0) && (
+            <div className="mt-4 space-y-3 rounded-[16px] border border-red-200 bg-red-50 p-4">
+              <div>
+                <h4 className="text-sm font-black uppercase text-red-800">Partite da incastrare</h4>
+                <p className="mt-1 text-xs font-semibold text-red-700">
+                  Abbinamenti suggeriti, non ancora programmati e non inclusi nel salvataggio.
+                  Controlla le disponibilità delle squadre interessate.
+                </p>
+              </div>
+              {missingFixturePlan.fixtures.map((fixture) => (
+                <article key={fixture.homeTeamId + "|" + fixture.awayTeamId}
+                  className="rounded-[12px] border border-red-200 bg-white p-3">
+                  <p className="font-black uppercase text-red-800">
+                    {teamNameById.get(fixture.homeTeamId) ?? fixture.homeTeamId}
+                    {" — "}
+                    {teamNameById.get(fixture.awayTeamId) ?? fixture.awayTeamId}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-red-700">
+                    {fixture.isBye
+                      ? "Turno di riposo da registrare: nessuno slot necessario"
+                      : fixture.commonSlots > 0
+                        ? `${fixture.commonSlots} slot comuni potenzialmente liberi: prova a rigenerare`
+                        : "Nessuno slot comune libero: modificare le disponibilità"}
+                  </p>
+                </article>
+              ))}
+              {missingFixturePlan.unresolvedTeamIds.length > 0 && (
+                <p className="text-xs font-bold text-red-800">
+                  Nessun incrocio consentito per: {missingFixturePlan.unresolvedTeamIds
+                    .map((id) => teamNameById.get(id) ?? id).join(", ")}.
+                  {missingFixturePlan.byeNotAvailable ? " Nessuna di queste squadre ha diritto a RIPOSO in questo giro." : ""}
+                </p>
+              )}
+            </div>
+          )}
 
           <button
             type="button"

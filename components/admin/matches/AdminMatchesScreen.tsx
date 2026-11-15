@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 
@@ -1197,8 +1197,8 @@ async function handleCreateMatch() {
       : [];
 
   const isSelectedWeekPublished =
-    selectedWeekMatches.length > 0 &&
-    selectedWeekMatches.every((match) => match.published === true);
+    selectedWeekMatches.some((match) => String(match.awayTeamId) !== "__ludi_bye__") &&
+    selectedWeekMatches.filter((match) => String(match.awayTeamId) !== "__ludi_bye__").every((match) => match.published === true);
 
   async function handlePublishMatchweek() {
     if (
@@ -1259,10 +1259,7 @@ async function handleCreateMatch() {
       (match) => resolveDisplayStatus(match) === "live",
     ).length;
 
-  const pendingMatches =
-    filteredMatches.length -
-    completedMatches -
-    liveMatches;
+  const pendingMatches = filteredMatches.filter((match) => String(match.awayTeamId) !== "__ludi_bye__").length - completedMatches - liveMatches;
 
   return (
     <AppShell>
@@ -2087,9 +2084,7 @@ async function handleCreateMatch() {
                           match.date,
                         )}
 
-                        {match.time
-                          ? ` Â· ${match.time}`
-                          : ""}
+                        {String(match.awayTeamId) === "__ludi_bye__" ? " · RIPOSO (nessuno slot)" : (match.time ? ` · ${match.time}` : "")}
                       </p>
                     </div>
 
@@ -2140,10 +2135,7 @@ async function handleCreateMatch() {
                             awayTeam
                               ?.logoUrl
                           }
-                          teamName={
-                            awayTeam
-                              ?.name
-                          }
+                          teamName={awayTeam?.name || (String(match.awayTeamId) === "__ludi_bye__" ? "RIPOSO" : undefined)}
                           size={
                             56
                           }
@@ -2151,25 +2143,13 @@ async function handleCreateMatch() {
                       </div>
 
                       <p className="mt-3 truncate text-sm font-black uppercase text-[#06142E]">
-  {awayTeam?.aliasName ||
-    awayTeam?.name ||
-    "Squadra ospite"}
+  {awayTeam?.aliasName || awayTeam?.name || (String(match.awayTeamId) === "__ludi_bye__" ? "RIPOSO" : "Squadra ospite")}
 </p>
                     </div>
                   </div>
 
                   <div className="mt-auto grid grid-cols-3 gap-2 pt-5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        openEditMatch(
-                          match,
-                        );
-                      }}
-                      className="min-h-11 rounded-[12px] border border-[#06142E]/10 text-xs font-black uppercase text-[#06142E]"
-                    >
-                      Modifica
-                    </button>
+                    {String(match.awayTeamId) === "__ludi_bye__" ? (<div className="flex min-h-11 items-center justify-center rounded-[12px] bg-amber-50 text-xs font-black uppercase text-amber-800">RIPOSO</div>) : (<button type="button" onClick={() => { openEditMatch(match); }} className="min-h-11 rounded-[12px] border border-[#06142E]/10 text-xs font-black uppercase text-[#06142E]">Modifica</button>)}
 
                     {match.status ===
                     "cancelled" ? (

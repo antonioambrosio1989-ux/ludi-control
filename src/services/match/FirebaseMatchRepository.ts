@@ -430,12 +430,7 @@ export const FirebaseMatchRepository = {
         seasonId,
       );
 
-    const matchweekMatches =
-      matches.filter(
-        (match) =>
-          match.matchweek ===
-          matchweek,
-      );
+    const matchweekMatches = matches.filter((match) => match.matchweek === matchweek && String(match.awayTeamId) !== "__ludi_bye__");
 
     if (
       matchweekMatches.length ===

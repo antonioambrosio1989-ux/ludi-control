@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   ChevronUp,
   Clock3,
+  Copy,
+  Share2,
   Link2,
   LockKeyhole,
   Plus,
@@ -66,6 +68,11 @@ type Runtime = {
   manOfTheMatchResult?: ManOfTheMatchPublicResult;
   ceremonyAwardResult?: CeremonyAwardPublicResult;
 };
+
+// Verifica eseguita solo durante l'azione dell'utente, non durante il render React.
+function scorePredictionKickoffReached(kickoffAtMs: number | undefined): boolean {
+  return typeof kickoffAtMs !== "number" || !Number.isFinite(kickoffAtMs) || Date.now() >= kickoffAtMs;
+}
 
 const BEST_OF_MONTH_KEYS: BestOfMonthAwardKey[] = [
   "player_of_the_month",
@@ -328,6 +335,10 @@ export default function VotingGameScreen({
 
   async function submitScorePrediction() {
     if (!runtime || runtime.poll.type !== "score_prediction" || runtime.submission) return;
+    if (runtime.poll.status !== "published" || scorePredictionKickoffReached(runtime.poll.scorePrediction?.match.kickoffAtMs)) {
+      setError("Pronostici chiusi – Partita iniziata.");
+      return;
+    }
     const homeScore = Number(scoreHome);
     const awayScore = Number(scoreAway);
     const needsScorer = homeScore + awayScore > 0;
@@ -531,6 +542,7 @@ export default function VotingGameScreen({
     if (runtime.poll.type === "score_prediction") {
       return (
         <ScorePredictionRuntime
+          gameId={gameId}
           runtime={runtime}
           demoMode={demoMode}
           homeScore={scoreHome}
@@ -926,6 +938,7 @@ function BestOfMonthRuntime({
 }
 
 function ScorePredictionRuntime({
+  gameId,
   runtime,
   demoMode,
   homeScore,
@@ -939,6 +952,7 @@ function ScorePredictionRuntime({
   onTopScorer,
   onSubmit,
 }: {
+  gameId: string;
   runtime: Runtime;
   demoMode: boolean;
   homeScore: string;
@@ -952,6 +966,14 @@ function ScorePredictionRuntime({
   onTopScorer: (value: string) => void;
   onSubmit: () => void;
 }) {
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  const [shareMessage, setShareMessage] = useState("");
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setClockNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const config = runtime.poll.scorePrediction;
   if (!config) {
     return (
@@ -965,7 +987,36 @@ function ScorePredictionRuntime({
     ? "/games/demo/score-prediction-cover.png"
     : config.posterImageUrl;
 
-  const locked = Boolean(runtime.submission) || runtime.poll.status !== "published";
+  const kickoffReached = !demoMode && (
+    !Number.isFinite(config.match.kickoffAtMs) || clockNow >= config.match.kickoffAtMs
+  );
+  const locked = Boolean(runtime.submission) || runtime.poll.status !== "published" || kickoffReached;
+  const publicUrl = `https://ludisleague.it/games/giochi/${encodeURIComponent(gameId)}/votazioni/${encodeURIComponent(runtime.poll.id)}`;
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      setShareMessage("Link copiato. Puoi incollarlo su Instagram, Facebook o WhatsApp.");
+    } catch {
+      setShareMessage("Copia non riuscita. Apri il collegamento pubblico e copia l'indirizzo.");
+    }
+  }
+
+  async function shareLink() {
+    if (!navigator.share) {
+      await copyLink();
+      return;
+    }
+    try {
+      await navigator.share({ title: "Ludi League – Score Prediction", url: publicUrl });
+      setShareMessage("");
+    } catch (error) {
+      if (error instanceof Error && error.name !== "AbortError") {
+        setShareMessage("Condivisione non riuscita. Usa il pulsante Copia link.");
+      }
+    }
+  }
+
   const totalGoals = Number(homeScore || 0) + Number(awayScore || 0);
   const valid =
     Number.isInteger(Number(homeScore)) &&
@@ -1031,6 +1082,28 @@ function ScorePredictionRuntime({
       </section>
 
       {runtime.submission ? <LockedMessage demoMode={demoMode} /> : null}
+
+      {kickoffReached && runtime.poll.status === "published" ? (
+        <div role="status" className="mt-4 rounded-[16px] bg-amber-50 p-4 text-sm font-black text-amber-900">
+          Pronostici chiusi – Partita iniziata
+        </div>
+      ) : null}
+
+      {!demoMode ? (
+        <section className="mt-4 rounded-[18px] border border-[#06142E]/10 bg-white p-4">
+          <p className="text-xs font-black uppercase text-[#06142E]">Condividi Score Prediction</p>
+          <p className="mt-1 text-xs text-[#06142E]/50">Link diretto a questa votazione, valido anche dopo il calcio d&apos;inizio.</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => void shareLink()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#06142E] px-3 text-xs font-black text-white">
+              <Share2 size={16} /> Condividi
+            </button>
+            <button type="button" onClick={() => void copyLink()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#F5F5F2] px-3 text-xs font-black text-[#06142E]">
+              <Copy size={16} /> Copia link
+            </button>
+          </div>
+          {shareMessage ? <p role="status" className="mt-2 text-xs font-bold text-[#06142E]/65">{shareMessage}</p> : null}
+        </section>
+      ) : null}
 
       {runtime.poll.status === "closed" ? (
         <ScorePredictionPublicResultPanel

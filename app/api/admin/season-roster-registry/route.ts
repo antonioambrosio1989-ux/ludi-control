@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
+import { createHash } from "node:crypto";
 import { adminAuth, adminDb } from "@/src/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
@@ -165,6 +166,135 @@ async function removeOne(seasonPlayerId: string): Promise<void> {
   });
 }
 
+
+// Trasforma un ospite della formazione in tesserato stagionale con una sola transazione.
+// La stessa autorizzazione fail-closed del registro protegge anche questa operazione.
+const normalizedIdentityPart = (value: string) => value.trim().toLocaleLowerCase("it")
+  .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+const record = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+const idList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+
+async function registerLineupGuest(body: Record<string, unknown>, adminUid: string) {
+  const { matchId, seasonId, teamId, side, guestId, expectedGuestName } = body;
+  if (![matchId, seasonId, teamId, guestId].every(validId) ||
+      (side !== "home" && side !== "away") || typeof expectedGuestName !== "string")
+    throw new Error("Identificativi della formazione non validi.");
+  const matchRef = adminDb.collection("matches").doc(matchId as string);
+  const lineupRef = adminDb.collection("matchLineups").doc(matchId as string);
+  const requestRef = adminDb.collection("lineupRequests").doc(`${matchId}__${teamId}`);
+  const seasonRef = adminDb.collection("seasons").doc(seasonId as string);
+  const teamRef = seasonRef.collection("teamEntries").doc(teamId as string);
+  const auditRef = adminDb.collection("lineupAdminEdits").doc();
+  const freshPlayerRef = adminDb.collection("players").doc();
+  const rosterRef = adminDb.collection("seasonPlayers").doc();
+  let resultingPlayerId = "";
+  await adminDb.runTransaction(async tx => {
+    // Ogni lettura avviene prima delle scritture, inclusi i controlli di omonimia.
+    const [match, lineup, request, season, team] = await Promise.all([
+      tx.get(matchRef), tx.get(lineupRef), tx.get(requestRef), tx.get(seasonRef), tx.get(teamRef),
+    ]);
+    if (!match.exists || !lineup.exists || !season.exists || !team.exists)
+      throw new Error("Partita, stagione, squadra o formazione non trovata.");
+    if (match.get("seasonId") !== seasonId ||
+        match.get(side === "home" ? "homeTeamId" : "awayTeamId") !== teamId)
+      throw new Error("La squadra non corrisponde alla formazione.");
+    if (!["draft", "active"].includes(season.get("status")) || season.get("regularSeasonClosed") === true)
+      throw new Error("La stagione non è modificabile.");
+    if (team.get("status") === "withdrawn" || team.get("status") === "completed")
+      throw new Error("La squadra non è abilitata.");
+    const oldSide = record(lineup.data()?.[side as string]);
+    if (oldSide.teamId !== teamId) throw new Error("Formazione non disponibile per la squadra.");
+    const oldGuests = Array.isArray(oldSide.guestPlayers) ? oldSide.guestPlayers.map(record) : [];
+    const guest = oldGuests.find(g => g.id === guestId);
+    if (!guest || guest.name !== expectedGuestName)
+      throw new Error("Giocatore modificato da un altro amministratore: aggiorna la pagina.");
+    const first = typeof guest.firstName === "string" ? guest.firstName.trim() : "";
+    const last = typeof guest.lastName === "string" ? guest.lastName.trim() : "";
+    const year = guest.birthYear;
+    const role = guest.role;
+    const number = guest.shirtNumber;
+    const currentYear = new Date().getFullYear();
+    if (first.length < 2 || last.length < 2 || (typeof year !== "number" || !Number.isInteger(year)) ||
+        (year as number) < 1900 || (year as number) > currentYear || !roles.has(role as string) ||
+        (number != null && (typeof number !== "number" || !Number.isInteger(number) || number < 1 || number > 99)))
+      throw new Error("Prima di inserire in lista compila nome, cognome, anno di nascita e ruolo validi.");
+    const competitionId = season.get("competitionId");
+    if (!validId(competitionId)) throw new Error("Competizione della stagione non valida.");
+    const players = await tx.get(adminDb.collection("players").where("competitionId", "==", competitionId));
+    const sameName = players.docs.filter(doc =>
+      normalizedIdentityPart(String(doc.get("firstName") ?? "")) === normalizedIdentityPart(first) &&
+      normalizedIdentityPart(String(doc.get("lastName") ?? "")) === normalizedIdentityPart(last));
+    const privateProfiles = await Promise.all(sameName.map(doc =>
+      tx.get(adminDb.collection("playerPrivateProfiles").doc(doc.id))));
+    const exact = sameName.filter((doc, index) => privateProfiles[index].get("birthYear") === year);
+    if (exact.length > 1) throw new Error("Profili duplicati già presenti: risolvi prima il conflitto.");
+    if (sameName.some((doc, index) => privateProfiles[index].get("birthYear") == null))
+      throw new Error("Esiste un omonimo senza anno di nascita: verificare manualmente prima dell'iscrizione.");
+    const playerId = exact[0]?.id ?? freshPlayerRef.id;
+    const identityHash = createHash("sha256")
+      .update(JSON.stringify([competitionId, normalizedIdentityPart(first), normalizedIdentityPart(last), year]))
+      .digest("hex");
+    const identityRef = adminDb.collection("playerIdentityKeys").doc(identityHash);
+    const keyRef = adminDb.collection("seasonPlayerKeys").doc(registryId(seasonId as string, playerId));
+    const [identityKey, registryKey, registered, shirts] = await Promise.all([
+      tx.get(identityRef), tx.get(keyRef),
+      tx.get(adminDb.collection("seasonPlayers").where("seasonId", "==", seasonId).where("playerId", "==", playerId).limit(1)),
+      number == null ? Promise.resolve(null) : tx.get(adminDb.collection("seasonPlayers")
+        .where("seasonId", "==", seasonId).where("teamId", "==", teamId)
+        .where("shirtNumber", "==", number).where("status", "==", "active").limit(1)),
+    ]);
+    if (identityKey.exists && identityKey.get("playerId") !== playerId)
+      throw new Error("Identità già associata a un altro profilo.");
+    if (registryKey.exists || !registered.empty) throw new Error("Giocatore già iscritto in questa stagione.");
+    if (shirts && !shirts.empty) throw new Error("Numero maglia già utilizzato dalla squadra.");
+    // Un giocatore già approvato come ospite mantiene la presenza, ma il suo ID diventa quello ufficiale.
+    const nextGuests = oldGuests.filter(g => g.id !== guestId);
+    const nextApproved = idList(oldSide.approvedGuestIds).filter(id => id !== guestId);
+    const nextPlayerIds = [...new Set([...idList(oldSide.playerIds).filter(id => id !== guestId), playerId])];
+    const keeper = record(oldSide.goalkeeper);
+    const isKeeper = oldSide.goalkeeperId === guestId || keeper.guestPlayerId === guestId;
+    const changedAt = FieldValue.serverTimestamp();
+    const status = nextPlayerIds.length + nextGuests.length >= 5 ? "published" : "needs_review";
+    if (!exact.length) {
+      tx.create(freshPlayerRef, {
+        competitionId, firstName: first, lastName: last, nationality: "IT",
+        photoUrl: null, coverImageUrl: null, historicalImportSources: [],
+        preferredFoot: null, baseRating: null, achievements: [], createdAt: changedAt, updatedAt: changedAt,
+      });
+      tx.create(adminDb.collection("playerPrivateProfiles").doc(playerId), {
+        birthYear: year, createdAt: changedAt, updatedAt: changedAt,
+      });
+    }
+    if (!identityKey.exists) tx.create(identityRef, { competitionId, firstName: first, lastName: last, birthYear: year, playerId });
+    tx.create(rosterRef, {
+      seasonId, playerId, teamId, role, shirtNumber: number ?? null, status: "active",
+      createdAt: changedAt, updatedAt: changedAt,
+    });
+    tx.create(keyRef, { seasonId, playerId, seasonPlayerId: rosterRef.id });
+    tx.update(lineupRef, {
+      [`${side}.guestPlayers`]: nextGuests, [`${side}.approvedGuestIds`]: nextApproved,
+      [`${side}.playerIds`]: nextPlayerIds, [`${side}.status`]: status,
+      ...(isKeeper ? { [`${side}.goalkeeperId`]: playerId,
+        [`${side}.goalkeeper`]: { kind: "roster", playerId } } : {}),
+      [`${side}.adminEditedAt`]: changedAt, [`${side}.lastModifiedAt`]: changedAt, updatedAt: changedAt,
+    });
+    if (request.exists) tx.set(requestRef, {
+      guestPlayers: nextGuests, approvedGuestIds: nextApproved, playerIds: nextPlayerIds,
+      status, ...(isKeeper ? { goalkeeperId: playerId, goalkeeper: { kind: "roster", playerId } } : {}),
+      adminEditedAt: changedAt, updatedAt: changedAt,
+    }, { merge: true });
+    tx.set(auditRef, {
+      matchId, seasonId, teamId, side, adminUid, action: "register_lineup_guest",
+      guestId, guestName: expectedGuestName, playerId, seasonPlayerId: rosterRef.id,
+      source: "ludi-control", createdAt: changedAt,
+    });
+    resultingPlayerId = playerId;
+  });
+  return resultingPlayerId;
+}
+
 export async function POST(request: NextRequest) {
   // Fail closed: niente scritture da Preview; produzione solo con opt-in esplicito.
   if (!registryWritesAllowed) return reply({ error: "Registro server non abilitato per questo ambiente." }, 403);
@@ -176,6 +306,12 @@ export async function POST(request: NextRequest) {
     body = raw as Record<string, unknown>;
   } catch { return reply({ error: "Richiesta JSON non valida." }, 400); }
   try {
+    if (body.action === "register_lineup_guest") {
+      const token = request.headers.get("authorization")?.match(/^Bearer (\S+)$/i)?.[1] ?? "";
+      const uid = (await adminAuth.verifyIdToken(token, true)).uid;
+      const playerId = await registerLineupGuest(body, uid);
+      return reply({ ok: true, playerId });
+    }
     if (body.action === "create") {
       const seasonPlayerId = await createOne(parseInput(body.input));
       return reply({ ok: true, seasonPlayerId });

@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
     }
     if (body.action === "rename_guest") {
-      const { matchId, seasonId, teamId, side, guestId, expectedGuestName, lastName, firstName } = body;
+      const { matchId, seasonId, teamId, side, guestId, expectedGuestName, lastName, firstName, birthYear, role, shirtNumber } = body;
       if (!validId(matchId) || !validId(seasonId) || !validId(teamId) ||
           (side !== "home" && side !== "away") || !validId(guestId) ||
           typeof expectedGuestName !== "string" || typeof lastName !== "string" ||
@@ -96,6 +96,14 @@ export async function POST(request: NextRequest) {
       const titleCase = (value: string) => value.toLocaleLowerCase("it")
         .replace(/(^|[\s'’.-])([\p{L}])/gu, (_, boundary: string, letter: string) =>
           boundary + letter.toLocaleUpperCase("it"));
+       const cleanedBirthYear = birthYear === undefined || birthYear === null || birthYear === "" ? null : Number(birthYear);
+       const cleanedShirtNumber = shirtNumber === undefined || shirtNumber === null || shirtNumber === "" ? null : Number(shirtNumber);
+       if (cleanedBirthYear !== null && (!Number.isInteger(cleanedBirthYear) || cleanedBirthYear < 1900 || cleanedBirthYear > new Date().getFullYear()))
+         return errorResponse("Anno di nascita non valido.", 400);
+       if (role !== undefined && role !== "Portiere" && role !== "Difensore" && role !== "Attaccante")
+         return errorResponse("Ruolo non valido.", 400);
+       if (cleanedShirtNumber !== null && (!Number.isInteger(cleanedShirtNumber) || cleanedShirtNumber < 1 || cleanedShirtNumber > 99))
+         return errorResponse("Numero di maglia non valido.", 400);
       const formattedLast = titleCase(cleanLastName);
       const formattedFirst = titleCase(cleanFirstName);
       const name = [formattedLast, formattedFirst].filter(Boolean).join(" ");
@@ -119,12 +127,9 @@ export async function POST(request: NextRequest) {
         const existing = oldGuests.find((guest) => guest.id === guestId);
         if (!existing || existing.name !== expectedGuestName)
           throw new Error("Il nominativo è stato modificato: aggiorna la pagina prima di salvare.");
-        if (oldGuests.some((guest) => guest.id !== guestId &&
-            typeof guest.name === "string" && guest.name.toLocaleLowerCase("it").normalize("NFD")
-              .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim() === normalizedName))
-          throw new Error("Un altro giocatore provvisorio ha già questo nominativo.");
         const updatedGuests = oldGuests.map((guest) => guest.id === guestId
-          ? { ...guest, name, lastName: formattedLast, firstName: formattedFirst || null, normalizedName }
+          ? { ...guest, name, lastName: formattedLast, firstName: formattedFirst || null, normalizedName,
+               birthYear: cleanedBirthYear, role: role ?? guest.role ?? null, shirtNumber: cleanedShirtNumber }
           : guest);
         const changedAt = FieldValue.serverTimestamp();
         tx.update(lineupRef, { [`${side}.guestPlayers`]: updatedGuests,
@@ -139,6 +144,60 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
     }
+
+     if (body.action === "delete_guest") {
+       const { matchId, seasonId, teamId, side, guestId, expectedGuestName } = body;
+       if (!validId(matchId) || !validId(seasonId) || !validId(teamId) ||
+           (side !== "home" && side !== "away") || !validId(guestId) ||
+           typeof expectedGuestName !== "string") return errorResponse("Dati eliminazione non validi.", 400);
+       const matchRef = adminDb.collection("matches").doc(matchId);
+       const lineupRef = adminDb.collection("matchLineups").doc(matchId);
+       const requestRef = adminDb.collection("lineupRequests").doc(`${matchId}__${teamId}`);
+       const auditRef = adminDb.collection("lineupAdminEdits").doc();
+       await adminDb.runTransaction(async (tx) => {
+         const [matchSnap, lineupSnap, requestSnap] = await Promise.all([
+           tx.get(matchRef), tx.get(lineupRef), tx.get(requestRef),
+         ]);
+         if (!matchSnap.exists || !lineupSnap.exists) throw new Error("Partita o formazione non trovata.");
+         const match = matchSnap.data() ?? {};
+         if (match.seasonId !== seasonId || match[side === "home" ? "homeTeamId" : "awayTeamId"] !== teamId)
+           throw new Error("Squadra o stagione non associata alla partita.");
+         const oldSide = asRecord(lineupSnap.data()?.[side]);
+         if (oldSide.teamId !== teamId) throw new Error("Formazione della squadra non disponibile.");
+         const oldGuests = Array.isArray(oldSide.guestPlayers) ? oldSide.guestPlayers.map(asRecord) : [];
+         const original = oldGuests.find((guest) => guest.id === guestId);
+         if (!original || original.name !== expectedGuestName)
+           throw new Error("Giocatore già cambiato: aggiorna la schermata.");
+         const nextGuests = oldGuests.filter((guest) => guest.id !== guestId);
+         const nextApproved = stringIds(oldSide.approvedGuestIds).filter((id) => id !== guestId);
+         const nextPlayerIds = stringIds(oldSide.playerIds).filter((id) => id !== guestId);
+         const oldKeeper = asRecord(oldSide.goalkeeper);
+         const isKeeper = oldSide.goalkeeperId === guestId || oldKeeper.guestPlayerId === guestId;
+         const changedAt = FieldValue.serverTimestamp();
+         const status = nextPlayerIds.length + nextGuests.length >= 5 ? "published" : "needs_review";
+         tx.update(lineupRef, {
+           [`${side}.guestPlayers`]: nextGuests,
+           [`${side}.approvedGuestIds`]: nextApproved,
+           [`${side}.playerIds`]: nextPlayerIds,
+           [`${side}.status`]: status,
+           ...(isKeeper ? { [`${side}.goalkeeperId`]: null, [`${side}.goalkeeper`]: null } : {}),
+           [`${side}.adminEditedAt`]: changedAt,
+           [`${side}.lastModifiedAt`]: changedAt,
+           updatedAt: changedAt,
+         });
+         if (requestSnap.exists) tx.set(requestRef, {
+           guestPlayers: nextGuests, approvedGuestIds: nextApproved,
+           playerIds: nextPlayerIds, status,
+           ...(isKeeper ? { goalkeeperId: null, goalkeeper: null } : {}),
+           adminEditedAt: changedAt, updatedAt: changedAt,
+         }, { merge: true });
+         tx.set(auditRef, { matchId, seasonId, teamId, side, adminUid: uid,
+           action: "delete_guest", guestId, previousGuestName: expectedGuestName,
+           wasApproved: stringIds(oldSide.approvedGuestIds).includes(guestId),
+           wasGoalkeeper: isKeeper, source: "ludi-control", createdAt: changedAt });
+       });
+       return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+     }
 
     const { matchId, seasonId, teamId, side, playerIds, expectedPlayerIds,
       goalkeeperId, expectedGoalkeeperId, guestGoalkeeperName } = body;
@@ -194,7 +253,7 @@ export async function POST(request: NextRequest) {
       let guests = oldGuests;
       let selectedGoalkeeper = typeof goalkeeperId === "string" ? goalkeeperId : "";
       if (selectedGoalkeeper && !(playerIds as string[]).includes(selectedGoalkeeper) &&
-        !oldGuests.some((g) => g.id === selectedGoalkeeper && (g.approved === true || oldGoalkeeper === selectedGoalkeeper)))
+        !oldGuests.some((g) => g.id === selectedGoalkeeper && (g.approved === true || stringIds(old.approvedGuestIds).includes(selectedGoalkeeper) || oldGoalkeeper === selectedGoalkeeper)))
         throw new Error("Il portiere selezionato non è tra i convocati.");
       if (typeof guestGoalkeeperName === "string" && guestGoalkeeperName.trim()) {
         const name = guestGoalkeeperName.replace(/\s+/g, " ").trim();

@@ -61,6 +61,9 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
   const [editingGuestId, setEditingGuestId] = useState("");
   const [guestLastName, setGuestLastName] = useState("");
   const [guestFirstName, setGuestFirstName] = useState("");
+  const [guestBirthYear, setGuestBirthYear] = useState("");
+  const [guestRole, setGuestRole] = useState("");
+  const [guestShirtNumber, setGuestShirtNumber] = useState("");
 
   useEffect(() => {
     if (!seasonId) return;
@@ -141,6 +144,9 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
     setEditingGuestId(asString(guest.id));
     setGuestLastName(asString(guest.lastName));
     setGuestFirstName(asString(guest.firstName));
+    setGuestBirthYear(guest.birthYear == null ? "" : String(guest.birthYear));
+    setGuestRole(asString(guest.role));
+    setGuestShirtNumber(guest.shirtNumber == null ? "" : String(guest.shirtNumber));
     setError(""); setSuccess("");
   }
 
@@ -160,12 +166,14 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
         headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: "rename_guest", matchId: match.id, seasonId, teamId, side,
           guestId: editingGuestId, expectedGuestName: asString(guest.name),
-          lastName: guestLastName.trim(), firstName: guestFirstName.trim() }),
+          lastName: guestLastName.trim(), firstName: guestFirstName.trim(),
+          birthYear: guestBirthYear, role: guestRole || undefined, shirtNumber: guestShirtNumber }),
       });
       const result = await response.json() as { ok?: boolean; error?: string };
       if (!response.ok || !result.ok) throw new Error(result.error ?? "Correzione non riuscita.");
       setEditingGuestId(""); setGuestFirstName(""); setGuestLastName("");
-      setSuccess("Nominativo provvisorio corretto per questa partita.");
+      setGuestBirthYear(""); setGuestShirtNumber("");
+      setSuccess("Dati del giocatore aggiornati per questa partita.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Correzione non riuscita.");
     } finally { setBusy(false); }
@@ -188,9 +196,77 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
       });
       const result = await response.json() as { ok?: boolean; error?: string };
       if (!response.ok || !result.ok) throw new Error(result.error ?? "Approvazione non riuscita.");
-      setSuccess("Giocatore approvato per questa partita: ora Ã¨ selezionabile come portiere.");
+      setSuccess("Giocatore approvato per questa partita: ora è selezionabile come portiere.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Approvazione non riuscita.");
+    } finally { setBusy(false); }
+  }
+
+  async function insertGuestInRoster(guestId: string) {
+    if (!match || !teamId || !seasonId || busy || dirty) return;
+    const guest = guests.map(sideData).find(entry => asString(entry.id) === guestId);
+    if (!guest) return;
+    if (!asString(guest.firstName).trim() || !asString(guest.lastName).trim() ||
+        !guest.birthYear || !asString(guest.role)) {
+      setError("Prima di inserire in lista usa Modifica nominativo e compila nome, cognome, anno di nascita e ruolo.");
+      return;
+    }
+    if (!window.confirm(`Inserire ${asString(guest.name)} nella rosa stagionale?`)) return;
+    setBusy(true); setError(""); setSuccess("");
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error("Accesso amministratore richiesto.");
+      const token = await user.getIdToken();
+      const response = await fetch("/api/admin/season-roster-registry", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "register_lineup_guest", matchId: match.id, seasonId, teamId,
+          side, guestId, expectedGuestName: asString(guest.name) }),
+      });
+      const result = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || !result.ok) throw new Error(result.error ?? "Iscrizione non riuscita.");
+      const [assignments, players] = await Promise.all([
+        FirebaseSeasonPlayerRepository.getAll(), FirebasePlayerRepository.getAllWithPrivate(),
+      ]);
+      const byId = new Map(players.map(player => [player.id, player]));
+      const next: Record<string, RosterItem[]> = {};
+      for (const assignment of assignments) {
+        if (assignment.seasonId !== seasonId || assignment.status !== "active") continue;
+        const player = byId.get(assignment.playerId);
+        if (!player) continue;
+        (next[assignment.teamId] ??= []).push({ id: player.id, name: `${player.lastName} ${player.firstName}`.trim() });
+      }
+      for (const values of Object.values(next)) values.sort((a, b) => a.name.localeCompare(b.name, "it"));
+      setRosters(next);
+      setSuccess("Giocatore inserito nella rosa stagionale e nella formazione.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Iscrizione non riuscita.");
+    } finally { setBusy(false); }
+  }
+
+  async function deleteGuest(guestId: string) {
+    if (!match || !teamId || !seasonId || busy) return;
+    if (dirty) { setError("Salva o annulla prima le altre modifiche alla formazione."); return; }
+    const guest = guests.map(sideData).find((entry) => asString(entry.id) === guestId);
+    if (!guest) return;
+    if (!window.confirm(`Eliminare ${asString(guest.name)} dalla formazione di questa partita?\nL'operazione non elimina alcun giocatore dall'archivio.`)) return;
+    setBusy(true); setError(""); setSuccess("");
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error("Devi effettuare l'accesso come amministratore.");
+      const token = await user.getIdToken();
+      const response = await fetch("/api/admin/lineups", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "delete_guest", matchId: match.id, seasonId, teamId,
+          side, guestId, expectedGuestName: asString(guest.name) }),
+      });
+      const result = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || !result.ok) throw new Error(result.error ?? "Eliminazione non riuscita.");
+      if (editingGuestId === guestId) setEditingGuestId("");
+      setSuccess("Voce errata eliminata dalla formazione della partita.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Eliminazione non riuscita.");
     } finally { setBusy(false); }
   }
 
@@ -329,14 +405,19 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
         </div>
         {!!guests.length && <div className="mt-3 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
           <p className="text-xs font-black text-amber-900">Giocatori provvisori della partita</p>
-          <p className="text-xs text-amber-800">Correggi il nominativo, poi approva il giocatore per inserirlo tra i presenti della singola partita. La rosa stagionale resta invariata.</p>
+          <p className="text-xs text-amber-800">Correggi i dati e scegli se inserire il giocatore nella rosa, approvarlo solo per questa partita o eliminare la voce errata.</p>
           {guests.map((value) => {
             const guest = sideData(value);
             const guestId = asString(guest.id);
             if (!guestId) return null;
             return <div key={guestId} className="rounded-lg border border-amber-200 bg-white p-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-bold text-[#06142E]">{asString(guest.name) || "Senza nome"}{guestId === goalkeeperId ? " (GK)" : ""}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="w-full text-sm font-bold text-[#06142E]">{asString(guest.name) || "Senza nome"}{guestId === goalkeeperId ? " (GK)" : ""}</span>
+                <button type="button" disabled={busy || dirty || editingGuestId === guestId}
+                  onClick={() => void insertGuestInRoster(guestId)}
+                  className="rounded-lg border border-green-700 px-3 py-2 text-xs font-bold text-green-800 disabled:opacity-40">
+                  Inserisci in lista
+                </button>
                 {!approvedGuestIds.includes(guestId) && <button type="button" disabled={busy || dirty || editingGuestId === guestId}
                   onClick={() => void approveGuest(guestId)}
                   className="rounded-lg bg-green-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
@@ -345,6 +426,8 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
                 {approvedGuestIds.includes(guestId) && <span className="text-xs font-bold text-green-700">Approvato</span>}
                 <button type="button" disabled={busy || dirty} onClick={() => beginGuestEdit(guest)}
                   className="rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-40">Modifica nominativo</button>
+                <button type="button" disabled={busy || dirty} onClick={() => void deleteGuest(guestId)}
+                  className="rounded-lg border border-red-300 px-3 py-2 text-xs font-bold text-red-700 disabled:opacity-40">Elimina giocatore</button>
               </div>
               {editingGuestId === guestId && <div className="mt-3 space-y-2">
                 <label className="block text-xs font-bold">Cognome
@@ -355,12 +438,31 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
                   <input value={guestFirstName} onChange={(event) => setGuestFirstName(event.target.value)}
                     placeholder="Es. Michele" className="mt-1 w-full rounded-lg border p-2 text-sm" />
                 </label>
+                <label className="block text-xs font-bold">Anno di nascita
+                  <input type="number" min="1900" max="2100" value={guestBirthYear}
+                    onChange={(event) => setGuestBirthYear(event.target.value)}
+                    className="mt-1 w-full rounded-lg border p-2 text-sm" />
+                </label>
+                <label className="block text-xs font-bold">Ruolo
+                  <select value={guestRole} onChange={event => setGuestRole(event.target.value)}
+                    className="mt-1 w-full rounded-lg border p-2 text-sm">
+                    <option value="">Seleziona ruolo</option>
+                    <option value="Portiere">Portiere</option>
+                    <option value="Difensore">Difensore</option>
+                    <option value="Attaccante">Attaccante</option>
+                  </select>
+                </label>
+                <label className="block text-xs font-bold">Numero di maglia
+                  <input type="number" min="1" max="99" value={guestShirtNumber}
+                    onChange={event => setGuestShirtNumber(event.target.value)}
+                    className="mt-1 w-full rounded-lg border p-2 text-sm" />
+                </label>
                 <div className="flex gap-2">
                   <button type="button" disabled={busy} onClick={() => setEditingGuestId("")}
                     className="rounded-lg border px-3 py-2 text-xs font-bold">Annulla</button>
                   <button type="button" disabled={busy || !guestLastName.trim()} onClick={() => void saveGuestName()}
                     className="rounded-lg bg-[#06142E] px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
-                    {busy ? "Salvataggio..." : "Salva nominativo"}
+                    {busy ? "Salvataggio..." : "Salva dati"}
                   </button>
                 </div>
               </div>}

@@ -336,7 +336,7 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
           className="mt-1 w-full rounded-lg border p-2 text-sm">
           <option value="">Seleziona partita</option>
           {selectableMatches.map((item) => <option key={item.id} value={item.id}>
-            {item.date} {item.time} Â· {teams[item.homeTeamId] ?? item.homeTeamId} vs {teams[item.awayTeamId] ?? item.awayTeamId}
+            {item.time} - {teams[item.homeTeamId] ?? item.homeTeamId} v {teams[item.awayTeamId] ?? item.awayTeamId}
           </option>)}
         </select>
       </label>
@@ -351,7 +351,7 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
             <option value="away">{teams[match.awayTeamId] ?? match.awayTeamId}</option>
           </select>
         </label>
-        <p className="mt-3 text-xs font-bold">Giocatori selezionati: {selectedIds.length}{guests.length ? ` Â· Ospiti WhatsApp conservati: ${guests.length}` : ""}</p>
+        <p className="mt-3 text-xs font-bold">Giocatori selezionati: {selectedIds.length}{guests.length ? ` - Ospiti WhatsApp conservati: ${guests.length}` : ""}</p>
         <p className="mt-3 text-xs font-bold text-[#06142E]">Portiere designato: {roster.find((p) => p.id === goalkeeperId)?.name ||
           (guests.find((g) => sideData(g).id === goalkeeperId) ? asString(sideData(guests.find((g) => sideData(g).id === goalkeeperId)).name) : "Da indicare")}</p>
         {!goalkeeperWizard && !guestGoalkeeper && <label className="mt-2 block text-xs font-bold">Scegli il portiere tra i convocati

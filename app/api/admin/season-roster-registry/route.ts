@@ -212,14 +212,15 @@ async function registerLineupGuest(body: Record<string, unknown>, adminUid: stri
       throw new Error("Giocatore modificato da un altro amministratore: aggiorna la pagina.");
     const first = typeof guest.firstName === "string" ? guest.firstName.trim() : "";
     const last = typeof guest.lastName === "string" ? guest.lastName.trim() : "";
-    const year = guest.birthYear;
+    const year = guest.birthYear == null || guest.birthYear === "" ? null : guest.birthYear;
     const role = guest.role;
     const number = guest.shirtNumber;
     const currentYear = new Date().getFullYear();
-    if (first.length < 2 || last.length < 2 || (typeof year !== "number" || !Number.isInteger(year)) ||
-        (year as number) < 1900 || (year as number) > currentYear || !roles.has(role as string) ||
+    if (first.length < 2 || last.length < 2 || !roles.has(role as string) ||
+        (year !== null && (typeof year !== "number" || !Number.isInteger(year) ||
+          year < 1900 || year > currentYear)) ||
         (number != null && (typeof number !== "number" || !Number.isInteger(number) || number < 1 || number > 99)))
-      throw new Error("Prima di inserire in lista compila nome, cognome, anno di nascita e ruolo validi.");
+      throw new Error("Nome, cognome e ruolo sono obbligatori. Anno di nascita e numero di maglia sono facoltativi.");
     const competitionId = season.get("competitionId");
     if (!validId(competitionId)) throw new Error("Competizione della stagione non valida.");
     const players = await tx.get(adminDb.collection("players").where("competitionId", "==", competitionId));
@@ -228,6 +229,8 @@ async function registerLineupGuest(body: Record<string, unknown>, adminUid: stri
       normalizedIdentityPart(String(doc.get("lastName") ?? "")) === normalizedIdentityPart(last));
     const privateProfiles = await Promise.all(sameName.map(doc =>
       tx.get(adminDb.collection("playerPrivateProfiles").doc(doc.id))));
+    if (year === null && sameName.length > 0)
+      throw new Error("Esiste già un giocatore con questo nome e cognome: indicare l'anno di nascita per verificare l'identità.");
     const exact = sameName.filter((doc, index) => privateProfiles[index].get("birthYear") === year);
     if (exact.length > 1) throw new Error("Profili duplicati già presenti: risolvi prima il conflitto.");
     if (sameName.some((doc, index) => privateProfiles[index].get("birthYear") == null))

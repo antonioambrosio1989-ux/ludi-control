@@ -160,7 +160,10 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
     if (dirty) { setError("Salva o annulla prima le altre modifiche alla formazione."); return; }
     const guest = guests.map(sideData).find((entry) => asString(entry.id) === editingGuestId);
     if (!guest) { setError("Giocatore provvisorio non piÃ¹ presente. Aggiorna la pagina."); return; }
-    if (!guestLastName.trim()) { setError("Inserisci il cognome del giocatore."); return; }
+    if (!guestLastName.trim() || !guestFirstName.trim() || !guestRole) {
+      setError("Nome, cognome e ruolo sono obbligatori.");
+      return;
+    }
     setBusy(true); setError(""); setSuccess("");
     try {
       const user = auth.currentUser;
@@ -212,8 +215,8 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
     const guest = guests.map(sideData).find(entry => asString(entry.id) === guestId);
     if (!guest) return;
     if (!asString(guest.firstName).trim() || !asString(guest.lastName).trim() ||
-        !guest.birthYear || !asString(guest.role)) {
-      setError("Prima di inserire in lista usa Modifica nominativo e compila nome, cognome, anno di nascita e ruolo.");
+        !asString(guest.role)) {
+      setError("Prima di inserire in lista compila nome, cognome e ruolo. Anno di nascita e numero di maglia sono facoltativi.");
       return;
     }
     if (!window.confirm(`Inserire ${asString(guest.name)} nella rosa stagionale?`)) return;
@@ -439,7 +442,7 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
                   <input value={guestLastName} onChange={(event) => setGuestLastName(event.target.value)}
                     placeholder="Es. Pagano" className="mt-1 w-full rounded-lg border p-2 text-sm" />
                 </label>
-                <label className="block text-xs font-bold">Nome (facoltativo)
+                <label className="block text-xs font-bold">Nome (obbligatorio)
                   <input value={guestFirstName} onChange={(event) => setGuestFirstName(event.target.value)}
                     placeholder="Es. Michele" className="mt-1 w-full rounded-lg border p-2 text-sm" />
                 </label>
@@ -465,7 +468,7 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
                 <div className="flex gap-2">
                   <button type="button" disabled={busy} onClick={() => setEditingGuestId("")}
                     className="rounded-lg border px-3 py-2 text-xs font-bold">Annulla</button>
-                  <button type="button" disabled={busy || !guestLastName.trim()} onClick={() => void saveGuestName()}
+                  <button type="button" disabled={busy || !guestLastName.trim() || !guestFirstName.trim() || !guestRole} onClick={() => void saveGuestName()}
                     className="rounded-lg bg-[#06142E] px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
                     {busy ? "Salvataggio..." : "Salva dati"}
                   </button>

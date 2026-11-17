@@ -701,7 +701,7 @@ const isLoading =
           </div>
 
           <aside className="min-w-0 space-y-5">
-            <AdminManualLineupsCard seasonId={currentSeasonId} />
+            <div id="manual-lineups"><AdminManualLineupsCard seasonId={currentSeasonId} /></div>
 
             <LineupRosterSuggestionsCard
               seasonId={

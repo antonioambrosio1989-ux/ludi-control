@@ -27,7 +27,7 @@ self.addEventListener("push", (event) => {
       body,
       icon,
       badge: "/icons/icon-192.png",
-      tag: data.category ? `ludi-${data.category}` : undefined,
+      tag: data.notificationId ? `ludi-lineup-${data.notificationId}` : (data.category ? `ludi-${data.category}` : undefined),
       data: { link },
     }),
   );

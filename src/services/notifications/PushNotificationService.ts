@@ -606,7 +606,7 @@ async function showForegroundNotification(
         "/icons/icon-192.png",
 
       tag:
-        `ludi-${category}`,
+        payload.data?.notificationId ? `ludi-lineup-${payload.data.notificationId}` : `ludi-${category}`,
 
       data: {
         link,

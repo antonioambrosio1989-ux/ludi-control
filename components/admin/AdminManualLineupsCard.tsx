@@ -28,8 +28,24 @@ function sideData(value: unknown): Record<string, unknown> {
 }
 
 
+function todayInRome(): string {
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Rome",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
 export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string }) {
   const [matches, setMatches] = useState<MatchItem[]>([]);
+  const [today, setToday] = useState(todayInRome);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setToday(todayInRome());
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
   const [matchId, setMatchId] = useState("");
   const [side, setSide] = useState<Side>("home");
   const [lineup, setLineup] = useState<LineupData | null>(null);
@@ -103,7 +119,7 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
     }, () => setError("Impossibile leggere la formazione."));
   }, [matchId]);
 
-  const selectableMatches = matches;
+  const selectableMatches = matches.filter((entry) => entry.date === today);
   const match = selectableMatches.find((entry) => entry.id === matchId);
   const teamId = match ? (side === "home" ? match.homeTeamId : match.awayTeamId) : "";
   const roster = rosters[teamId] ?? [];
@@ -143,7 +159,7 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
     if (!match || !teamId || !seasonId || !editingGuestId || busy) return;
     if (dirty) { setError("Salva o annulla prima le altre modifiche alla formazione."); return; }
     const guest = guests.map(sideData).find((entry) => asString(entry.id) === editingGuestId);
-    if (!guest) { setError("Giocatore provvisorio non più presente. Aggiorna la pagina."); return; }
+    if (!guest) { setError("Giocatore provvisorio non piÃ¹ presente. Aggiorna la pagina."); return; }
     if (!guestLastName.trim()) { setError("Inserisci il cognome del giocatore."); return; }
     setBusy(true); setError(""); setSuccess("");
     try {
@@ -185,7 +201,7 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
       });
       const result = await response.json() as { ok?: boolean; error?: string };
       if (!response.ok || !result.ok) throw new Error(result.error ?? "Approvazione non riuscita.");
-      setSuccess("Giocatore approvato per questa partita: ora è selezionabile come portiere.");
+      setSuccess("Giocatore approvato per questa partita: ora Ã¨ selezionabile come portiere.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Approvazione non riuscita.");
     } finally { setBusy(false); }
@@ -280,10 +296,10 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
       setError("Sono presenti giocatori non appartenenti alla rosa attiva."); return;
     }
     if (goalkeeperWizard || goalkeeperNeedsReplacement) {
-      setError("Prima di salvare indica chi giocherà in porta."); return;
+      setError("Prima di salvare indica chi giocherÃ  in porta."); return;
     }
     if (goalkeeperId && !selectedIds.includes(goalkeeperId) && !eligibleGuestGoalkeepers.some((g) => g.id === goalkeeperId) && goalkeeperId !== storedGoalkeeperId && !guestGoalkeeper) {
-      setError("Il portiere selezionato non è nella formazione."); return;
+      setError("Il portiere selezionato non Ã¨ nella formazione."); return;
     }
     setBusy(true); setError(""); setSuccess("");
     try {
@@ -311,18 +327,18 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
     <section className="rounded-[18px] border border-[#06142E]/10 bg-white p-5">
       <h2 className="text-lg font-black uppercase text-[#06142E]">Gestione manuale formazioni</h2>
       <p className="mt-1 text-xs font-semibold text-[#06142E]/55">Seleziona una partita, poi aggiungi o rimuovi giocatori dalla rosa della squadra.</p>
-      <p className="mt-2 text-xs font-semibold text-[#06142E]/55">Sono disponibili anche le partite precedenti per correggere le segnalazioni ancora aperte.</p>
+      <p className="mt-2 text-xs font-semibold text-[#06142E]/55">Solo partite del giorno corrente (ora italiana).</p>
       <label className="mt-4 block text-xs font-bold">Partita
         <select value={matchId} onChange={(event) => { setMatchId(event.target.value); setDirty(false); setGoalkeeperWizard(false); setGuestGoalkeeper(""); setEditingGuestId(""); setSuccess(""); }}
           className="mt-1 w-full rounded-lg border p-2 text-sm">
           <option value="">Seleziona partita</option>
           {selectableMatches.map((item) => <option key={item.id} value={item.id}>
-            {item.date} {item.time} · {teams[item.homeTeamId] ?? item.homeTeamId} vs {teams[item.awayTeamId] ?? item.awayTeamId}
+            {item.date} {item.time} Â· {teams[item.homeTeamId] ?? item.homeTeamId} vs {teams[item.awayTeamId] ?? item.awayTeamId}
           </option>)}
         </select>
       </label>
       {selectableMatches.length === 0 && (
-        <p className="mt-3 text-sm font-semibold text-[#06142E]/60">Nessuna partita disponibile per questa competizione.</p>
+        <p className="mt-3 text-sm font-semibold text-[#06142E]/60">Nessuna partita in programma oggi per questa competizione.</p>
       )}
       {match && <>
         <label className="mt-3 block text-xs font-bold">Squadra
@@ -332,7 +348,7 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
             <option value="away">{teams[match.awayTeamId] ?? match.awayTeamId}</option>
           </select>
         </label>
-        <p className="mt-3 text-xs font-bold">Giocatori selezionati: {selectedIds.length}{guests.length ? ` · Ospiti WhatsApp conservati: ${guests.length}` : ""}</p>
+        <p className="mt-3 text-xs font-bold">Giocatori selezionati: {selectedIds.length}{guests.length ? ` Â· Ospiti WhatsApp conservati: ${guests.length}` : ""}</p>
         <p className="mt-3 text-xs font-bold text-[#06142E]">Portiere designato: {roster.find((p) => p.id === goalkeeperId)?.name ||
           (guests.find((g) => sideData(g).id === goalkeeperId) ? asString(sideData(guests.find((g) => sideData(g).id === goalkeeperId)).name) : "Da indicare")}</p>
         {!goalkeeperWizard && !guestGoalkeeper && <label className="mt-2 block text-xs font-bold">Scegli il portiere tra i convocati
@@ -346,13 +362,13 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
           </select>
         </label>}
         {(goalkeeperWizard || goalkeeperNeedsReplacement) && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2">
-          <p className="text-sm font-black">Chi giocherà in porta per questa partita?</p>
+          <p className="text-sm font-black">Chi giocherÃ  in porta per questa partita?</p>
           <input value={goalkeeperSurname} onChange={(e) => { setGoalkeeperSurname(e.target.value); setGoalkeeperChoice(""); }}
             placeholder="Cognome del portiere" className="w-full rounded-lg border p-2 text-sm" />
           {!!goalkeeperSurname.trim() && (surnameMatches.length > 0 ? <>
-            <p className="text-xs">Il cognome è già presente. Si tratta dello stesso giocatore o di un omonimo?</p>
+            <p className="text-xs">Il cognome Ã¨ giÃ  presente. Si tratta dello stesso giocatore o di un omonimo?</p>
             <label className="block text-xs"><input type="radio" checked={goalkeeperChoice === "existing"}
-              onChange={() => setGoalkeeperChoice("existing")}/> Giocatore già presente</label>
+              onChange={() => setGoalkeeperChoice("existing")}/> Giocatore giÃ  presente</label>
             {goalkeeperChoice === "existing" && <select className="w-full rounded-lg border p-2 text-sm" value={goalkeeperId}
               onChange={(e) => setDraftGoalkeeperId(e.target.value)}>
               <option value="">Scegli il giocatore</option>
@@ -360,14 +376,14 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
             </select>}
             <label className="block text-xs"><input type="radio" checked={goalkeeperChoice === "new"}
               onChange={() => { setGoalkeeperChoice("new"); setDraftGoalkeeperId(""); }}/> Giocatore diverso con lo stesso cognome</label>
-          </> : <p className="text-xs">Cognome non presente: verrà registrato come portiere provvisorio.</p>)}
+          </> : <p className="text-xs">Cognome non presente: verrÃ  registrato come portiere provvisorio.</p>)}
           {goalkeeperChoice === "new" && <input value={goalkeeperFirstName}
             onChange={(e) => setGoalkeeperFirstName(e.target.value)} placeholder="Nome del nuovo portiere"
             className="w-full rounded-lg border p-2 text-sm" />}
           <button type="button" className="rounded-lg bg-[#06142E] px-3 py-2 text-xs font-bold text-white"
             onClick={() => {
               if (!goalkeeperSurname.trim()) return;
-              if (surnameMatches.length && !goalkeeperChoice) { setError("Scegli se è un giocatore già presente o un omonimo."); return; }
+              if (surnameMatches.length && !goalkeeperChoice) { setError("Scegli se Ã¨ un giocatore giÃ  presente o un omonimo."); return; }
               if (goalkeeperChoice === "existing") {
                 if (!goalkeeperId || !surnameMatches.some((p) => p.id === goalkeeperId)) { setError("Seleziona il giocatore presente."); return; }
                 setGuestGoalkeeper("");
@@ -387,8 +403,8 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
           </label>)}
           {approvedGuests.filter((guest) => asString(guest.name).toLocaleLowerCase("it").includes(search.trim().toLocaleLowerCase("it")))
             .map((guest) => <div key={asString(guest.id)} className="flex items-center gap-2 rounded-lg bg-green-50 p-2 text-sm">
-              <span className="font-bold text-green-700">âœ“</span>
-              <span>{asString(guest.name)} Â· Presente (provvisorio approvato)</span>
+              <span className="font-bold text-green-700">Ã¢Å“â€œ</span>
+              <span>{asString(guest.name)} Ã‚Â· Presente (provvisorio approvato)</span>
             </div>)}
           {!roster.length && approvedGuests.length === 0 && <p className="text-xs text-amber-700">Nessun giocatore attivo trovato per questa rosa.</p>}
         </div>

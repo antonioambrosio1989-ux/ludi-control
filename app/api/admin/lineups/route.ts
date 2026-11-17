@@ -234,7 +234,15 @@ export async function POST(request: NextRequest) {
         throw new Error("Squadra o stagione non associata alla partita.");
       const old = asRecord(lineupSnap.data()?.[validatedSide]);
       const oldIds = stringIds(old.playerIds);
-      const oldGoalkeeper = typeof old.goalkeeperId === "string" ? old.goalkeeperId : "";
+      const storedGoalkeeper = asRecord(old.goalkeeper);
+      const oldGoalkeeper =
+        typeof old.goalkeeperId === "string" && old.goalkeeperId.trim()
+          ? old.goalkeeperId
+          : storedGoalkeeper.kind === "guest"
+            ? String(storedGoalkeeper.guestPlayerId ?? "")
+            : storedGoalkeeper.kind === "roster"
+              ? String(storedGoalkeeper.playerId ?? "")
+              : "";
       if (oldGoalkeeper !== (typeof expectedGoalkeeperId === "string" ? expectedGoalkeeperId : ""))
         throw new Error("Il portiere è stato cambiato da un altro utente: aggiorna la pagina.");
       if (!sameSet(oldIds, expectedPlayerIds as string[]))

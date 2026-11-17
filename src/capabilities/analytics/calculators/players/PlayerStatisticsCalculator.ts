@@ -1,3 +1,4 @@
+import { isTemporaryMatchPlayerId } from "@/src/services/match/TemporaryMatchPlayer";
 import type {
   PlayerSeasonStatistics,
   StatsMatchReference,
@@ -253,6 +254,10 @@ export const PlayerStatisticsCalculator = {
           ([playerId, performance]) => {
             const normalizedPlayerId =
               String(playerId);
+
+            if (isTemporaryMatchPlayerId(normalizedPlayerId)) {
+              return;
+            }
 
             const teamId =
               homePlayerIds.has(

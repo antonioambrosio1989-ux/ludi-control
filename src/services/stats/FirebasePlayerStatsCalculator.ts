@@ -1,3 +1,5 @@
+import { isTemporaryMatchPlayerId } from "@/src/services/match/TemporaryMatchPlayer";
+
 import type {
   CloudMatchReport,
 } from "@/src/services/match/FirebaseMatchReportRepository";
@@ -200,6 +202,11 @@ export function calculateFirebasePlayerStats({
     String(
       playerId,
     );
+
+  // Il calcolo è riservato ai profili ufficiali.
+  if (isTemporaryMatchPlayerId(normalizedPlayerId)) {
+    return { stats: { appearances: 0, goals: 0, assists: 0, mvp: 0, ratingVariation: 0, yellowCards: 0, redCards: 0, directRedCards: 0, cleanSheets: 0 }, history: [] };
+  }
 
   const matchesById =
     new Map(

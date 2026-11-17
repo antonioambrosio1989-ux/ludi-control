@@ -1,3 +1,5 @@
+import { isTemporaryMatchPlayerId } from "@/src/services/match/TemporaryMatchPlayer";
+
 import type {
   MatchweekDisciplinaryPlayer,
 } from "@/src/services/discipline/DisciplinaryEngine";
@@ -61,9 +63,12 @@ export const MatchReportDisciplineAdapter =
                 "",
             ).trim();
 
+          // I provvisori restano nel tabellino, ma non generano
+          // sanzioni disciplinari stagionali o persistenti.
           if (
             !playerId ||
-            !teamId
+            !teamId ||
+            isTemporaryMatchPlayerId(playerId)
           ) {
             return;
           }

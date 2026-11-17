@@ -7,6 +7,9 @@ import {
 } from "react";
 
 import { useRouter } from "next/navigation";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/src/lib/firebase";
+import { createTemporaryLineupGuestId } from "@/src/services/match/TemporaryMatchPlayer";
 import dynamic from "next/dynamic";
 
 import { useTeams } from "@/src/hooks/useTeams";
@@ -58,6 +61,29 @@ import {
 import type {
   FinalStageMatch,
 } from "@/src/types/FinalStageMatch";
+
+type PrefillLineupSide = { playerIds?: unknown; guestPlayers?: unknown; approvedGuestIds?: unknown; teamId?: unknown; goalkeeperId?: unknown };
+
+function prefillIdsFromLineupSide(value: PrefillLineupSide | undefined, expectedTeamId: string): string[] {
+  if (!value || String(value.teamId) !== expectedTeamId) return [];
+  const rosterIds = Array.isArray(value.playerIds)
+    ? value.playerIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+  const approved = new Set(Array.isArray(value.approvedGuestIds) ? value.approvedGuestIds : []);
+  const guests = Array.isArray(value.guestPlayers) ? value.guestPlayers : [];
+  const guestIds = guests.flatMap((raw: unknown) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+    const guest = raw as Record<string, unknown>;
+    if (typeof guest.id !== "string" || !approved.has(guest.id) ||
+        typeof guest.name !== "string" || !guest.name.trim()) return [];
+    const role = guest.role === "Portiere" || guest.role === "Difensore" || guest.role === "Attaccante"
+      ? guest.role : value.goalkeeperId === guest.id ? "Portiere" : "Attaccante";
+    return [createTemporaryLineupGuestId({
+      teamId: expectedTeamId, guestId: guest.id, name: guest.name.trim(), role,
+    })];
+  });
+  return [...new Set([...rosterIds, ...guestIds])];
+}
 
 function MatchStepLoading() {
   return (
@@ -626,10 +652,11 @@ setFinalStageSeasonMatches(
   useEffect(() => {
     let isActive = true;
 
-    async function loadStoredReport() {
-      setCloudSyncStatus(
-        "loading",
-      );
+async function loadStoredReport() {
+  let canAutosave = true;
+  setDraftLoaded(false);
+
+  setCloudSyncStatus("loading");
 
       try {
         const cloudReport =
@@ -680,12 +707,35 @@ setFinalStageSeasonMatches(
               matchId,
             }),
           );
+        } else if (!isFinalStage) {
+          // Prefill una sola volta e soltanto in assenza di un tabellino cloud/locale.
+          // La selezione resta libera; in seguito prevale sempre il tabellino salvato.
+          const [lineupSnap, matchSnap] = await Promise.all([
+            getDoc(doc(db, "matchLineups", matchId)),
+            getDoc(doc(db, "matches", matchId)),
+          ]);
+          if (!isActive) return;
+          if (lineupSnap.exists() && matchSnap.exists()) {
+            const sides = lineupSnap.data();
+            const currentMatch = matchSnap.data();
+            const homePresentPlayerIds = prefillIdsFromLineupSide(
+              sides.home as PrefillLineupSide | undefined, String(currentMatch.homeTeamId),
+            );
+            const awayPresentPlayerIds = prefillIdsFromLineupSide(
+              sides.away as PrefillLineupSide | undefined, String(currentMatch.awayTeamId),
+            );
+            setWizardData((currentData) => ({
+              ...currentData, homePresentPlayerIds, awayPresentPlayerIds,
+            }));
+          }
         }
 
         setCloudSyncStatus(
           "saved",
         );
       } catch (error) {
+        canAutosave = false;
+
         console.error(
           "Errore caricamento Firestore:",
           error,
@@ -717,7 +767,7 @@ setFinalStageSeasonMatches(
         );
       } finally {
         if (isActive) {
-          setDraftLoaded(true);
+          setDraftLoaded(canAutosave);
         }
       }
     }
@@ -2050,7 +2100,7 @@ function CloudSyncBadge({
   const current =
     content[status];
 
-  
+
 
   return (
     <div className="mb-5 flex items-center justify-center gap-2 rounded-[13px] bg-white px-4 py-3 shadow-[0_8px_20px_rgba(6,20,46,0.07)]">

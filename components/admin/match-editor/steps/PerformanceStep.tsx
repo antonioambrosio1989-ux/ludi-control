@@ -17,6 +17,7 @@ import type { Team } from "@/src/types/Team";
 
 import {
   parseTemporaryGoalkeeperId,
+  parseTemporaryLineupGuestId,
 } from "@/src/services/match/TemporaryMatchPlayer";
 
 type TeamTab = "home" | "away";
@@ -931,6 +932,13 @@ function buildPerformancePlayers({
       },
     );
 
+  const temporaryLineupGuests = presentPlayerIds.flatMap((playerId) => {
+    const guest = parseTemporaryLineupGuestId(playerId);
+    if (!guest) return [];
+    return [{ id: guest.id, name: guest.name, teamId: guest.teamId,
+      role: guest.role, temporary: true }];
+  });
+
   // Stesso ordine dello step Formazioni: Portieri, Difensori, Attaccanti.
   // La sort stabile mantiene l'ordine originario della rosa all'interno
   // di ogni ruolo e include i portieri provvisori nel primo gruppo.
@@ -940,7 +948,7 @@ function buildPerformancePlayers({
     Attaccante: 2,
   };
 
-  return [...rosterPlayers, ...temporaryGoalkeepers].sort(
+  return [...rosterPlayers, ...temporaryGoalkeepers, ...temporaryLineupGuests].sort(
     (first, second) =>
       (roleOrder[first.role] ?? 3) - (roleOrder[second.role] ?? 3),
   );

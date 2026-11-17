@@ -15,6 +15,7 @@ import {
 import {
   createTemporaryGoalkeeperId,
   parseTemporaryGoalkeeperId,
+  parseTemporaryLineupGuestId,
 } from "@/src/services/match/TemporaryMatchPlayer";
 
 import type {
@@ -278,9 +279,16 @@ export default function AttendanceStep({
           },
         );
 
+      const temporaryLineupGuests = currentPresentPlayerIds.flatMap((playerId) => {
+        const guest = parseTemporaryLineupGuestId(playerId);
+        if (!guest || String(guest.teamId) !== String(currentTeam?.id ?? "")) return [];
+        return [{ id: guest.id, name: guest.name, role: guest.role, temporary: true }];
+      });
+
       return [
         ...seasonRoster,
         ...temporaryGoalkeepers,
+        ...temporaryLineupGuests,
       ];
     }, [
       currentSeasonRoster,

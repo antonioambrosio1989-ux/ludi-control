@@ -21,6 +21,7 @@ import type { MatchWizardData } from "@/src/types/MatchWizardData";
 
 import {
   parseTemporaryGoalkeeperId,
+  parseTemporaryLineupGuestId,
 } from "@/src/services/match/TemporaryMatchPlayer";
 
 type ReviewPlayer = {
@@ -822,9 +823,8 @@ function buildTemporaryReviewPlayers({
       playerId,
     ) => {
       const temporary =
-        parseTemporaryGoalkeeperId(
-          playerId,
-        );
+        parseTemporaryGoalkeeperId(playerId) ??
+        parseTemporaryLineupGuestId(playerId);
 
       if (!temporary) {
         return [];
@@ -840,7 +840,7 @@ function buildTemporaryReviewPlayers({
             temporary.teamId,
           teamName,
           role:
-            "Portiere",
+            temporary.role,
         },
       ];
     },

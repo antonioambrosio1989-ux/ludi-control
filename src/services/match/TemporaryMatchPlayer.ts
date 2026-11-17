@@ -129,3 +129,44 @@ export function isTemporaryGoalkeeperId(
     null
   );
 }
+
+
+/** Giocatore provvisorio approvato nella formazione; non è un tesserato stagionale. */
+const TEMPORARY_LINEUP_GUEST_PREFIX = "__ludi_temp_lineup_guest__";
+
+export type TemporaryLineupGuest = {
+  id: string;
+  teamId: string;
+  name: string;
+  role: "Portiere" | "Difensore" | "Attaccante";
+  temporary: true;
+};
+
+export function createTemporaryLineupGuestId(input: {
+  teamId: string;
+  guestId: string;
+  name: string;
+  role: TemporaryLineupGuest["role"];
+}): string {
+  return [TEMPORARY_LINEUP_GUEST_PREFIX,
+    encodeURIComponent(input.teamId), encodeURIComponent(input.guestId),
+    encodeURIComponent(input.role), encodeURIComponent(input.name),
+  ].join("|");
+}
+
+export function parseTemporaryLineupGuestId(value: string | number): TemporaryLineupGuest | null {
+  const id = String(value);
+  const parts = id.split("|");
+  if (parts.length !== 5 || parts[0] !== TEMPORARY_LINEUP_GUEST_PREFIX) return null;
+  const teamId = safeDecode(parts[1]);
+  const guestId = safeDecode(parts[2]);
+  const role = safeDecode(parts[3]);
+  const name = safeDecode(parts[4]).trim();
+  if (!teamId || !guestId || !name ||
+      (role !== "Portiere" && role !== "Difensore" && role !== "Attaccante")) return null;
+  return { id, teamId, name, role, temporary: true };
+}
+
+export function isTemporaryMatchPlayerId(value: string | number): boolean {
+  return isTemporaryGoalkeeperId(value) || parseTemporaryLineupGuestId(value) !== null;
+}

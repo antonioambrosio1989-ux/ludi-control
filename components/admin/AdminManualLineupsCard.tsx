@@ -406,8 +406,8 @@ export default function AdminManualLineupsCard({ seasonId }: { seasonId?: string
           </label>)}
           {approvedGuests.filter((guest) => asString(guest.name).toLocaleLowerCase("it").includes(search.trim().toLocaleLowerCase("it")))
             .map((guest) => <div key={asString(guest.id)} className="flex items-center gap-2 rounded-lg bg-green-50 p-2 text-sm">
-              <span className="font-bold text-green-700">Ã¢Å“â€œ</span>
-              <span>{asString(guest.name)} Ã‚Â· Presente (provvisorio approvato)</span>
+              <span className="font-bold text-green-700">{"\u2713"}</span>
+              <span>{asString(guest.name)}{" \u00B7 "} Presente (provvisorio approvato)</span>
             </div>)}
           {!roster.length && approvedGuests.length === 0 && <p className="text-xs text-amber-700">Nessun giocatore attivo trovato per questa rosa.</p>}
         </div>

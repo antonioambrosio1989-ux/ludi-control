@@ -69,6 +69,9 @@ export function mapPlayer(
         ? data.lastName
         : "",
 
+    publicProfileSlug:
+      getOptionalString(data.publicProfileSlug),
+
     photoUrl:
       getOptionalString(
         data.photoUrl,

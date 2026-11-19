@@ -65,6 +65,9 @@ export type PlayerProfile = {
    */
   birthYear?: number;
 
+  /** Alias pubblico stabile, senza dati anagrafici riservati. */
+  publicProfileSlug?: string;
+
   photoUrl?: string;
   coverImageUrl?: string;
   historicalImportSources?: HistoricalImportSource[];

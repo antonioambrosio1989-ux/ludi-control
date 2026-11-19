@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/src/lib/firebase";
+import { buildStablePublicPlayerAlias } from "./publicPlayerAlias";
 
 import type {
   CreatePlayerInput,
@@ -535,6 +536,12 @@ export const FirebasePlayerRepository =
           birthYear:
             input.birthYear,
 
+          publicProfileSlug: buildStablePublicPlayerAlias({
+            playerId,
+            firstName: input.firstName.trim(),
+            lastName: input.lastName.trim(),
+          }),
+
           photoUrl:
             input.photoUrl
               ?.trim() ||
@@ -601,6 +608,12 @@ export const FirebasePlayerRepository =
           ),
         );
 
+      const publicProfileSlug = buildStablePublicPlayerAlias({
+        playerId: playerReference.id,
+        firstName,
+        lastName,
+      });
+
       const batch =
         writeBatch(
           db,
@@ -615,6 +628,8 @@ export const FirebasePlayerRepository =
           firstName,
 
           lastName,
+
+          publicProfileSlug,
 
           photoUrl:
             normalizeOptionalText(

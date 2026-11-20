@@ -9,6 +9,13 @@ export const dynamic = "force-dynamic";
 
 const idPattern = /^[a-zA-Z0-9_-]{1,180}$/;
 const roles = new Set(["Portiere", "Difensore", "Attaccante"]);
+const completedStatuses = new Set(["played", "finished", "walkover", "cancelled"]);
+const civilDate = (value: unknown): value is string =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+  !Number.isNaN(new Date(`${value}T12:00:00Z`).getTime()) &&
+  new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value;
+const registryId = (seasonId: string, playerId: string) =>
+  `sp_${Buffer.from(JSON.stringify([seasonId, playerId]), "utf8").toString("base64url")}`;
 type InactivePeriod = { from: string; to?: string };
 
 function romeDay() {
@@ -67,13 +74,18 @@ export async function POST(request: NextRequest) {
         throw new Error("ISCRIZIONE_INVALID");
       const seasonRef = adminDb.collection("seasons").doc(seasonId);
       const teamRef = seasonRef.collection("teamEntries").doc(teamId);
-      const [season, team, duplicates] = await Promise.all([
+      const registryRef = adminDb.collection("seasonPlayerKeys").doc(registryId(seasonId, playerId));
+      const [season, team, duplicates, registry] = await Promise.all([
         tx.get(seasonRef),
         tx.get(teamRef),
         tx.get(adminDb.collection("seasonPlayers")
           .where("seasonId", "==", seasonId)
           .where("playerId", "==", playerId).limit(10)),
+        tx.get(registryRef),
       ]);
+      if (!registry.exists || registry.get("seasonId") !== seasonId ||
+          registry.get("playerId") !== playerId || registry.get("seasonPlayerId") !== seasonPlayerId)
+        throw new Error("REGISTRY_INVALID");
       if (!season.exists || !["draft", "active"].includes(season.get("status")))
         throw new Error("STAGIONE_CLOSED");
       if (duplicates.docs.some((doc) => doc.id !== seasonPlayerId && doc.get("status") === "active"))
@@ -87,7 +99,7 @@ export async function POST(request: NextRequest) {
           .where("seasonId", "==", seasonId).where("date", "==", today).limit(100));
         if (todayMatches.docs.some((doc) =>
           [String(doc.get("homeTeamId")), String(doc.get("awayTeamId"))].includes(teamId) &&
-          !["played", "finished", "walkover", "cancelled"].includes(String(doc.get("status")))))
+          !completedStatuses.has(String(doc.get("status")))))
           throw new Error("TODAY_FIXTURES_PENDING");
         const periods: InactivePeriod[] = Array.isArray(record.inactivePeriods)
           ? record.inactivePeriods : [];
@@ -102,20 +114,82 @@ export async function POST(request: NextRequest) {
       }
 
       if (record.status !== "inactive") throw new Error("NOT_INACTIVE");
-      // Non bypassare il mercato/trasferimenti: il rientro è nella stessa squadra.
-      if (requestedTeamId !== teamId) throw new Error("OTHER_TEAM_NOT_ALLOWED");
-      if (!team.exists || ["withdrawn", "completed"].includes(team.get("status")))
+      const changingTeam = requestedTeamId !== teamId;
+      const destinationRef = changingTeam
+        ? seasonRef.collection("teamEntries").doc(requestedTeamId as string)
+        : teamRef;
+      const destination = changingTeam ? await tx.get(destinationRef) : team;
+      if (!destination.exists || ["withdrawn", "completed"].includes(destination.get("status")))
         throw new Error("TEAM_NOT_AVAILABLE");
+      if (changingTeam && (!team.exists || ["withdrawn", "completed"].includes(team.get("status"))))
+        throw new Error("SOURCE_TEAM_NOT_AVAILABLE");
       if (season.get("regularSeasonClosed") === true)
         throw new Error("STAGIONE_CLOSED");
       if (shirtNumber !== undefined && shirtNumber !== null) {
         const others = await tx.get(adminDb.collection("seasonPlayers")
           .where("seasonId", "==", seasonId)
-          .where("teamId", "==", teamId)
+          .where("teamId", "==", requestedTeamId)
           .where("shirtNumber", "==", shirtNumber)
           .where("status", "==", "active").limit(10));
         if (others.docs.some((doc) => doc.id !== seasonPlayerId))
           throw new Error("SHIRT_TAKEN");
+      }
+      // Trasferimento di uno svincolato: nessuna finestra di mercato, ma
+      // conserva la catena cronologica e non attribuisce a una squadra nuova
+      // le partite gia disputate oggi. Data effettiva = domani.
+      let transferUpdate: Record<string, unknown> = {};
+      const transferRef = changingTeam ? adminDb.collection("seasonTransfers").doc() : null;
+      let transferRecord: Record<string, unknown> | null = null;
+      if (changingTeam) {
+        // Un altro incontro ancora aperto oggi in una delle due squadre
+        // renderebbe ambiguo l'allineamento della rosa col calendario.
+        const todayMatches = await tx.get(adminDb.collection("matches")
+          .where("seasonId", "==", seasonId).where("date", "==", today).limit(100));
+        if (todayMatches.docs.some((doc) =>
+          [String(doc.get("homeTeamId")), String(doc.get("awayTeamId"))]
+            .some((id) => id === teamId || id === requestedTeamId) &&
+          !completedStatuses.has(String(doc.get("status")))))
+          throw new Error("TODAY_FIXTURES_PENDING");
+
+        const history: unknown = record.transferHistory ?? [];
+        if (!Array.isArray(history)) throw new Error("TRANSFER_HISTORY_INVALID");
+        const initialTeamId = record.initialTeamId ?? teamId;
+        if (typeof initialTeamId !== "string" || !idPattern.test(initialTeamId))
+          throw new Error("TRANSFER_HISTORY_INVALID");
+        let lastTeam = initialTeamId;
+        let lastDate = "";
+        const used = new Set<string>();
+        for (const item of history) {
+          if (!item || typeof item !== "object" || Array.isArray(item))
+            throw new Error("TRANSFER_HISTORY_INVALID");
+          const transfer = item as Record<string, unknown>;
+          if (typeof transfer.id !== "string" || !transfer.id || used.has(transfer.id) ||
+              transfer.playerId !== playerId || transfer.seasonId !== seasonId ||
+              (transfer.competitionId !== undefined && transfer.competitionId !== season.get("competitionId")) ||
+              !civilDate(transfer.effectiveDate) || transfer.effectiveDate <= lastDate ||
+              transfer.fromTeamId !== lastTeam ||
+              typeof transfer.toTeamId !== "string" || !idPattern.test(transfer.toTeamId))
+            throw new Error("TRANSFER_HISTORY_INVALID");
+          used.add(transfer.id);
+          lastDate = transfer.effectiveDate;
+          lastTeam = transfer.toTeamId;
+        }
+        if (lastTeam !== teamId || nextDay <= lastDate)
+          throw new Error("TRANSFER_HISTORY_INVALID");
+        const competitionId = season.get("competitionId");
+        if (typeof competitionId !== "string" || !idPattern.test(competitionId))
+          throw new Error("ISCRIZIONE_INVALID");
+        if (!transferRef) throw new Error("TRANSFER_HISTORY_INVALID");
+        transferRecord = {
+          id: transferRef.id, seasonId, playerId, competitionId,
+          fromTeamId: teamId, toTeamId: requestedTeamId,
+          effectiveDate: nextDay,
+        };
+        transferUpdate = {
+          teamId: requestedTeamId,
+          initialTeamId,
+          transferHistory: [...history, transferRecord],
+        };
       }
       const periods: InactivePeriod[] = Array.isArray(record.inactivePeriods)
         ? [...record.inactivePeriods] : [];
@@ -131,8 +205,15 @@ export async function POST(request: NextRequest) {
         shirtNumber: shirtNumber ?? null,
         leftAt: FieldValue.delete(),
         inactivePeriods: periods,
+        ...transferUpdate,
         updatedAt: FieldValue.serverTimestamp(),
       });
+      if (transferRecord && transferRef) {
+        tx.create(transferRef, {
+          ...transferRecord, seasonPlayerId,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
     });
     return respond({ ok: true, action });
   } catch (error) {
@@ -145,10 +226,12 @@ export async function POST(request: NextRequest) {
       NOT_ACTIVE: "Il giocatore non risulta attivo nella rosa.",
       NOT_INACTIVE: "Il giocatore non risulta svincolato.",
       INTERVALS_INCONSISTENT: "Storico dei periodi da verificare: operazione bloccata.",
-      OTHER_TEAM_NOT_ALLOWED: "Il reinserimento in una squadra diversa deve avvenire tramite Mercato Ludi.",
+      REGISTRY_INVALID: "Registro univoco non coerente: operazione bloccata.",
+      TRANSFER_HISTORY_INVALID: "Cronologia dei trasferimenti non coerente: operazione bloccata.",
+      SOURCE_TEAM_NOT_AVAILABLE: "La squadra precedente non è disponibile.",
       TEAM_NOT_AVAILABLE: "La squadra non è più disponibile.",
       SHIRT_TAKEN: "Numero maglia già utilizzato.",
-      TODAY_FIXTURES_PENDING: "Per questa squadra ci sono partite di oggi ancora aperte. Completa i tabellini o effettua lo svincolo domani.",
+      TODAY_FIXTURES_PENDING: "Ci sono partite di oggi ancora aperte per una delle squadre. Completa prima gli incontri.",
     };
     console.error("Roster membership operation refused", error);
     return respond({ error: messages[code] ?? "Operazione non disponibile. Nessun dato modificato." }, 409);

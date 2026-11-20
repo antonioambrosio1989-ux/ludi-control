@@ -1,20 +1,23 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
-import { initializeApp, deleteApp, getApp, getApps, type App } from "firebase-admin/app";
+import { initializeApp, deleteApp, getApps, type App } from "firebase-admin/app";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 
 const projectId = "demo-ludi-roster-release";
-if (!process.env.FIRESTORE_EMULATOR_HOST || !/^demo-/.test(process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? projectId)) {
-  throw new Error("TEST BLOCCATO: richiesto Firestore Emulator con progetto demo-.");
+const host = process.env.FIRESTORE_EMULATOR_HOST;
+if (!host || !/^(?:127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(host) ||
+    (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) ||
+    (process.env.GOOGLE_CLOUD_PROJECT && process.env.GOOGLE_CLOUD_PROJECT !== projectId)) {
+  throw new Error("TEST BLOCCATO: richiesto Firestore Emulator locale e progetto demo-ludi-roster-release.");
 }
-// Nessuna autenticazione reale: mock esclusivamente per testare la logica POST.
+
 vi.mock("server-only", () => ({}));
 vi.mock("@/src/lib/requireAdminApi", () => ({ requireAdminApi: async () => ({ uid: "demo_admin" }) }));
 vi.mock("@/src/lib/firebaseAdmin", async () => {
   const { initializeApp, getApps } = await import("firebase-admin/app");
   const { getFirestore } = await import("firebase-admin/firestore");
-  const app = getApps().find((item) => item.name === "ludi-roster-emulator-test") ??
+  const app = getApps().find((a) => a.name === "ludi-roster-emulator-test") ??
     initializeApp({ projectId: "demo-ludi-roster-release" }, "ludi-roster-emulator-test");
   return { adminDb: getFirestore(app) };
 });
@@ -26,21 +29,33 @@ let app: App;
 let seasonId = "";
 let playerId = "";
 let membershipId = "";
-const teamId = "demo_home";
-const otherTeamId = "demo_other";
-const today = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-const reportData = { matchId: "demo_match_01", status: "published", data: { matchId: "demo_match_01", status: "finished", homeScore: 3, awayScore: 1, homePresentPlayerIds: ["demo_player"], goals: [{ scorerPlayerId: "demo_player", teamId }], performances: { demo_player: { playerId: "demo_player", vote: 7, assists: 1 } } } };
-const request = (action: "release" | "restore", extra: Record<string, unknown> = {}) =>
+const sourceTeam = "demo_home";
+const destinationTeam = "demo_other";
+const competitionId = "premier-league";
+const today = () => new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit",
+}).format(new Date());
+const tomorrow = () => {
+  const [year, month, day] = today().split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+};
+const registryId = (season: string, player: string) =>
+  `sp_${Buffer.from(JSON.stringify([season, player]), "utf8").toString("base64url")}`;
+const createRequest = (action: "release" | "restore", extra: Record<string, unknown> = {}) =>
   new NextRequest("http://localhost/api/admin/roster-membership", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, seasonPlayerId: membershipId, ...extra }),
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action, seasonPlayerId: membershipId, ...extra }),
   });
 const call = async (action: "release" | "restore", extra: Record<string, unknown> = {}) => {
-  const response = await POST(request(action, extra));
+  const response = await POST(createRequest(action, extra));
   return { status: response.status, data: await response.json() as { ok?: boolean; error?: string } };
 };
+const roster = async () => (await db.collection("seasonPlayers").doc(membershipId).get()).data()!;
+const transferDocs = async () => (await db.collection("seasonTransfers").where("seasonPlayerId", "==", membershipId).get()).docs;
 
 beforeAll(() => {
-  app = getApps().find((entry) => entry.name === "ludi-roster-emulator-test") ?? getApp("ludi-roster-emulator-test");
+  app = getApps().find((entry) => entry.name === "ludi-roster-emulator-test") ??
+    initializeApp({ projectId }, "ludi-roster-emulator-test");
   db = getFirestore(app);
 });
 afterAll(async () => { await deleteApp(app); });
@@ -48,58 +63,111 @@ beforeEach(async () => {
   seasonId = `demo_${randomUUID().replaceAll("-", "")}`;
   playerId = `player_${randomUUID().replaceAll("-", "")}`;
   membershipId = `roster_${randomUUID().replaceAll("-", "")}`;
+  const report = { status: "published", seasonId, data: {
+    homePresentPlayerIds: [playerId], goals: [{ scorerPlayerId: playerId, teamId: sourceTeam }],
+    performances: { [playerId]: { playerId, vote: 7, assists: 1 } },
+  } };
   await Promise.all([
-    db.collection("seasons").doc(seasonId).set({ status: "active" }),
-    db.collection("seasons").doc(seasonId).collection("teamEntries").doc(teamId).set({ status: "active" }),
-    db.collection("seasons").doc(seasonId).collection("teamEntries").doc(otherTeamId).set({ status: "active" }),
-    db.collection("seasonPlayers").doc(membershipId).set({ seasonId, playerId, teamId, status: "active", role: "Attaccante", shirtNumber: 9, joinedAt: "2026-09-01" }),
+    db.collection("seasons").doc(seasonId).set({ status: "active", competitionId, regularSeasonClosed: false }),
+    db.collection("seasons").doc(seasonId).collection("teamEntries").doc(sourceTeam).set({ status: "active" }),
+    db.collection("seasons").doc(seasonId).collection("teamEntries").doc(destinationTeam).set({ status: "active" }),
+    db.collection("seasonPlayers").doc(membershipId).set({
+      seasonId, playerId, teamId: sourceTeam, status: "active", role: "Attaccante",
+      shirtNumber: 9, joinedAt: "2026-09-01",
+    }),
+    db.collection("seasonPlayerKeys").doc(registryId(seasonId, playerId)).set({ seasonId, playerId, seasonPlayerId: membershipId }),
     db.collection("players").doc(playerId).set({ firstName: "Test", lastName: "Svincolo", photoUrl: "/demo.jpg" }),
-    db.collection("matchReports").doc(`${seasonId}_match_01`).set(reportData),
+    db.collection("matchReports").doc(`${seasonId}_match_01`).set(report),
   ]);
 });
 
-describe("Svincolo rosa: API reale su Firestore Emulator", () => {
-  it("svincola mantenendo profilo e tabellino intatti", async () => {
-    const beforePlayer = (await db.collection("players").doc(playerId).get()).data();
-    const beforeReport = (await db.collection("matchReports").doc(`${seasonId}_match_01`).get()).data();
-    const result = await call("release");
-    expect(result).toMatchObject({ status: 200, data: { ok: true } });
-    const roster = (await db.collection("seasonPlayers").doc(membershipId).get()).data();
-    expect(roster).toMatchObject({ seasonId, playerId, teamId, status: "inactive", role: "Attaccante", shirtNumber: 9 });
-    expect(roster?.inactivePeriods).toHaveLength(1);
-    expect(roster?.inactivePeriods[0].from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect((await db.collection("players").doc(playerId).get()).data()).toEqual(beforePlayer);
-    expect((await db.collection("matchReports").doc(`${seasonId}_match_01`).get()).data()).toEqual(beforeReport);
+describe("Svincolati fuori mercato – API reale su Firestore Emulator", () => {
+  it("svincola senza cambiare giocatore, registro o tabellino", async () => {
+    const playerBefore = (await db.collection("players").doc(playerId).get()).data();
+    const reportBefore = (await db.collection("matchReports").doc(`${seasonId}_match_01`).get()).data();
+    const keyBefore = (await db.collection("seasonPlayerKeys").doc(registryId(seasonId, playerId)).get()).data();
+    expect(await call("release")).toMatchObject({ status: 200, data: { ok: true } });
+    expect(await roster()).toMatchObject({ seasonId, playerId, teamId: sourceTeam, status: "inactive", leftAt: tomorrow() });
+    expect((await roster()).inactivePeriods).toEqual([{ from: tomorrow() }]);
+    expect((await db.collection("players").doc(playerId).get()).data()).toEqual(playerBefore);
+    expect((await db.collection("matchReports").doc(`${seasonId}_match_01`).get()).data()).toEqual(reportBefore);
+    expect((await db.collection("seasonPlayerKeys").doc(registryId(seasonId, playerId)).get()).data()).toEqual(keyBefore);
   });
-  it("non svincola due volte", async () => {
+
+  it("blocca il doppio svincolo senza scrivere di nuovo", async () => {
     expect((await call("release")).status).toBe(200);
-    const before = (await db.collection("seasonPlayers").doc(membershipId).get()).data();
+    const before = await roster();
     expect((await call("release")).status).toBe(409);
-    expect((await db.collection("seasonPlayers").doc(membershipId).get()).data()).toEqual(before);
+    expect(await roster()).toEqual(before);
   });
-  it("permette il rientro nella stessa squadra conservando l'ID e i periodi", async () => {
+
+  it("riammette alla stessa squadra senza creare trasferimento", async () => {
     expect((await call("release")).status).toBe(200);
-    const response = await call("restore", { teamId, role: "Attaccante", shirtNumber: 11 });
-    expect(response.status).toBe(200);
-    const roster = (await db.collection("seasonPlayers").doc(membershipId).get()).data();
-    expect(roster).toMatchObject({ status: "active", playerId, teamId, shirtNumber: 11 });
-    expect(roster?.inactivePeriods).toHaveLength(1);
-    expect(roster?.inactivePeriods[0].to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(await call("restore", { teamId: sourceTeam, role: "Attaccante", shirtNumber: 11 }))
+      .toMatchObject({ status: 200, data: { ok: true } });
+    expect(await roster()).toMatchObject({ status: "active", teamId: sourceTeam, playerId, shirtNumber: 11 });
+    expect((await roster()).inactivePeriods).toEqual([{ from: tomorrow(), to: tomorrow() }]);
+    expect(await transferDocs()).toHaveLength(0);
   });
-  it("blocca rientro in squadra diversa e mantiene l'iscrizione inattiva", async () => {
+
+  it("tessera uno svincolato nella squadra diversa e crea cronologia, senza alterare tabellino e registro", async () => {
+    const reportBefore = (await db.collection("matchReports").doc(`${seasonId}_match_01`).get()).data();
+    const keyBefore = (await db.collection("seasonPlayerKeys").doc(registryId(seasonId, playerId)).get()).data();
     expect((await call("release")).status).toBe(200);
-    const result = await call("restore", { teamId: otherTeamId, role: "Attaccante" });
-    expect(result.status).toBe(409);
-    expect((await db.collection("seasonPlayers").doc(membershipId).get()).get("status")).toBe("inactive");
+    expect(await call("restore", { teamId: destinationTeam, role: "Difensore", shirtNumber: 22 }))
+      .toMatchObject({ status: 200, data: { ok: true } });
+    const current = await roster();
+    expect(current).toMatchObject({ seasonId, playerId, teamId: destinationTeam, initialTeamId: sourceTeam,
+      status: "active", role: "Difensore", shirtNumber: 22 });
+    expect(current.transferHistory).toHaveLength(1);
+    expect(current.transferHistory[0]).toMatchObject({ seasonId, playerId, competitionId,
+      fromTeamId: sourceTeam, toTeamId: destinationTeam, effectiveDate: tomorrow() });
+    const transfers = await transferDocs();
+    expect(transfers).toHaveLength(1);
+    expect(transfers[0].data()).toMatchObject({ seasonId, playerId, seasonPlayerId: membershipId,
+      fromTeamId: sourceTeam, toTeamId: destinationTeam, effectiveDate: tomorrow() });
+    expect((await db.collection("seasonPlayerKeys").doc(registryId(seasonId, playerId)).get()).data()).toEqual(keyBefore);
+    expect((await db.collection("matchReports").doc(`${seasonId}_match_01`).get()).data()).toEqual(reportBefore);
   });
-  it("blocca lo svincolo se una partita della squadra è aperta oggi", async () => {
-    await db.collection("matches").doc(`${seasonId}_today`).set({ seasonId, homeTeamId: teamId, awayTeamId: otherTeamId, date: today(), status: "scheduled" });
+
+  it("blocca lo svincolo se c'è una partita aperta oggi", async () => {
+    await db.collection("matches").doc(`${seasonId}_today`).set({
+      seasonId, homeTeamId: sourceTeam, awayTeamId: destinationTeam, date: today(), status: "scheduled",
+    });
     expect((await call("release")).status).toBe(409);
-    expect((await db.collection("seasonPlayers").doc(membershipId).get()).get("status")).toBe("active");
+    expect((await roster()).status).toBe("active");
   });
-  it("blocca lo svincolo se la stagione è terminata", async () => {
+
+  it("blocca il trasferimento se c'è una partita aperta oggi della squadra di destinazione", async () => {
+    expect((await call("release")).status).toBe(200);
+    await db.collection("matches").doc(`${seasonId}_today`).set({
+      seasonId, homeTeamId: destinationTeam, awayTeamId: "another_team", date: today(), status: "scheduled",
+    });
+    expect((await call("restore", { teamId: destinationTeam, role: "Attaccante" })).status).toBe(409);
+    expect((await roster()).status).toBe("inactive");
+    expect(await transferDocs()).toHaveLength(0);
+  });
+
+  it("blocca il reinserimento se il numero maglia è già occupato", async () => {
+    expect((await call("release")).status).toBe(200);
+    await db.collection("seasonPlayers").doc(`other_${randomUUID().replaceAll("-", "")}`).set({
+      seasonId, playerId: "different_player", teamId: destinationTeam, status: "active", shirtNumber: 22,
+    });
+    expect((await call("restore", { teamId: destinationTeam, role: "Difensore", shirtNumber: 22 })).status).toBe(409);
+    expect((await roster()).status).toBe("inactive");
+  });
+
+  it("blocca lo svincolo a stagione completata", async () => {
     await db.collection("seasons").doc(seasonId).update({ status: "completed" });
     expect((await call("release")).status).toBe(409);
-    expect((await db.collection("seasonPlayers").doc(membershipId).get()).get("status")).toBe("active");
+    expect((await roster()).status).toBe("active");
+  });
+
+  it("blocca il trasferimento se il registro univoco è assente", async () => {
+    expect((await call("release")).status).toBe(200);
+    await db.collection("seasonPlayerKeys").doc(registryId(seasonId, playerId)).delete();
+    expect((await call("restore", { teamId: destinationTeam, role: "Difensore" })).status).toBe(409);
+    expect((await roster()).status).toBe("inactive");
+    expect(await transferDocs()).toHaveLength(0);
   });
 });

@@ -26,9 +26,7 @@ import {
   FirebaseSeasonPlayerRepository,
 } from "@/src/services/player/FirebaseSeasonPlayerRepository";
 
-import {
-  PlayerMergeService,
-} from "@/src/services/player/PlayerMergeService";
+import { mergePlayersAdminApi } from "@/src/services/player/mergePlayersAdminApi";
 
 import type {
   PlayerProfile,
@@ -1227,7 +1225,7 @@ const error =
 
     try {
       const result =
-        await PlayerMergeService.merge({
+        await mergePlayersAdminApi({
           targetPlayerId:
             effectiveTarget.id,
 
